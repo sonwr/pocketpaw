@@ -1,4 +1,7 @@
-"""Open Interpreter agent wrapper."""
+"""Open Interpreter agent wrapper.
+
+Changes: 2026-02-02 - Added executor layer logging for architecture visibility.
+"""
 
 import asyncio
 import logging
@@ -10,7 +13,13 @@ logger = logging.getLogger(__name__)
 
 
 class OpenInterpreterAgent:
-    """Wraps Open Interpreter for autonomous task execution."""
+    """Wraps Open Interpreter for autonomous task execution.
+    
+    In the Agent SDK architecture, this serves as the EXECUTOR layer:
+    - Executes code and system commands
+    - Handles file operations
+    - Provides sandboxed execution environment
+    """
     
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -62,7 +71,10 @@ class OpenInterpreterAgent:
             interpreter.safe_mode = "ask"  # Will still ask before dangerous ops
             
             self._interpreter = interpreter
-            logger.info("✅ Open Interpreter initialized")
+            logger.info("=" * 50)
+            logger.info("🔧 EXECUTOR: Open Interpreter initialized")
+            logger.info("   └─ Role: Code execution, file ops, system commands")
+            logger.info("=" * 50)
             
         except ImportError:
             logger.error("❌ Open Interpreter not installed. Run: pip install open-interpreter")
@@ -71,16 +83,22 @@ class OpenInterpreterAgent:
             logger.error(f"❌ Failed to initialize Open Interpreter: {e}")
             self._interpreter = None
     
-    async def run(self, message: str) -> AsyncIterator[dict]:
+    async def run(self, message: str, system_message: Optional[str] = None) -> AsyncIterator[dict]:
         """Run a message through Open Interpreter with real-time streaming."""
         if not self._interpreter:
             yield {
                 "type": "message",
-                "content": "❌ Open Interpreter not available. Install with: `pip install open-interpreter`"
+                "content": "❌ Open Interpreter not available."
             }
             return
         
         self._stop_flag = False
+        
+        # Apply system message if provided
+        if system_message:
+            # We prepend to keep OI's functional instructions
+            # interpreter usually has its own long system_message
+            self._interpreter.system_message = f"{system_message}\n\n{self._interpreter.system_message}"
         
         # Use a queue to stream chunks from the sync thread to the async generator
         chunk_queue: asyncio.Queue = asyncio.Queue()
@@ -112,14 +130,11 @@ class OpenInterpreterAgent:
                                 loop
                             )
                         elif chunk_type == "message" and content:
-                            current_message.append(content)
-                            # Stream partial messages every ~100 chars
-                            if len("".join(current_message)) > 100:
-                                asyncio.run_coroutine_threadsafe(
-                                    chunk_queue.put({"type": "message", "content": "".join(current_message)}),
-                                    loop
-                                )
-                                current_message = []
+                            # Stream EVERY chunk for better UI feel
+                            asyncio.run_coroutine_threadsafe(
+                                chunk_queue.put({"type": "message", "content": content}),
+                                loop
+                            )
                     elif isinstance(chunk, str) and chunk:
                         current_message.append(chunk)
                 

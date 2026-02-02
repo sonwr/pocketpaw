@@ -1,4 +1,8 @@
-"""PocketPaw entry point."""
+"""PocketPaw entry point.
+
+Changes:
+  - 2026-02-02: Added Rich logging for beautiful console output.
+"""
 
 import argparse
 import asyncio
@@ -7,11 +11,10 @@ import webbrowser
 from pathlib import Path
 
 from pocketclaw.config import get_settings, Settings
+from pocketclaw.logging_setup import setup_logging
 
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO
-)
+# Setup beautiful logging with Rich
+setup_logging(level="INFO")
 logger = logging.getLogger(__name__)
 
 

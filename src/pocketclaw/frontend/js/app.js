@@ -1,6 +1,14 @@
 /**
  * PocketPaw Main Application
  * Alpine.js component for the dashboard
+ *
+ * Changes (2026-02-02):
+ * - Fixed auto-scroll: Added scrollToBottom() method with requestAnimationFrame
+ * - Streaming scroll: Now scrolls during streaming content updates
+ * - Simplified: Removed 2-layer mode
+ * - Added: PocketPaw Native backend (brain + OI hands)
+ * - Updated: Default backend is now claude_agent_sdk (recommended)
+ * - Added: getBackendDescription() for settings UI
  */
 
 function app() {
@@ -10,7 +18,54 @@ function app() {
         showSettings: false,
         showScreenshot: false,
         showFileBrowser: false,
+        showReminders: false,
         screenshotSrc: '',
+
+        // Reminders state
+        reminders: [],
+        reminderInput: '',
+        reminderLoading: false,
+
+        // Intentions state
+        showIntentions: false,
+        intentions: [],
+        intentionLoading: false,
+        intentionForm: {
+            name: '',
+            prompt: '',
+            schedulePreset: '',
+            customCron: '',
+            includeSystemStatus: false
+        },
+
+        // Skills state
+        showSkills: false,
+        skills: [],
+        skillsLoading: false,
+
+        // Remote Access state
+        showRemote: false,
+        remoteStatus: { active: false, url: '', installed: false },
+        tunnelLoading: false,
+
+        // Transparency Panel state
+        showIdentity: false,
+        identityLoading: false,
+        identityData: {},
+        
+        showMemory: false,
+        memoryTab: 'session',
+        sessionMemory: [],
+        longTermMemory: [],
+        
+        showAudit: false,
+        auditLoading: false,
+        auditLogs: [],
+        
+        activityLog: [],
+        sessionId: null,
+
+        // File browser state
 
         // File browser state
         filePath: '~',
@@ -19,7 +74,7 @@ function app() {
         fileError: null,
         
         // Agent state
-        agentActive: false,
+        agentActive: true,
         isStreaming: false,
         streamingContent: '',
         streamingMessageId: null,
@@ -40,21 +95,58 @@ function app() {
         
         // Settings
         settings: {
-            agentBackend: 'open_interpreter',
-            llmProvider: 'auto'
+            agentBackend: 'claude_agent_sdk',  // Default: Claude Agent SDK (recommended)
+            llmProvider: 'auto',
+            anthropicModel: 'claude-sonnet-4-5-20250929',
+            bypassPermissions: false
         },
         
-        // API Keys (not persisted client-side)
+        // API Keys (not persisted client-side, but we track if saved on server)
         apiKeys: {
             anthropic: '',
             openai: ''
         },
+        hasAnthropicKey: false,
+        hasOpenaiKey: false,
 
         /**
          * Initialize the app
          */
         init() {
             this.log('PocketPaw Dashboard initialized', 'info');
+
+            // Handle Auth Token (URL capture)
+            const urlParams = new URLSearchParams(window.location.search);
+            const token = urlParams.get('token');
+            if (token) {
+                localStorage.setItem('pocketpaw_token', token);
+                // Clean URL
+                window.history.replaceState({}, document.title, window.location.pathname);
+                this.log('Auth token captured and stored', 'success');
+            }
+
+            // --- OVERRIDE FETCH FOR AUTH ---
+            const originalFetch = window.fetch;
+            window.fetch = async (url, options = {}) => {
+                const storedToken = localStorage.getItem('pocketpaw_token');
+                
+                // Skip auth for static or external
+                if (url.toString().startsWith('/api') || url.toString().startsWith('/')) {
+                     options.headers = options.headers || {};
+                     if (storedToken) {
+                         options.headers['Authorization'] = `Bearer ${storedToken}`;
+                     }
+                }
+                
+                const response = await originalFetch(url, options);
+                
+                if (response.status === 401 || response.status === 403) {
+                     this.showToast('Session expired. Please re-authenticate.', 'error');
+                     // Optionally redirect to login page (if we had one)
+                }
+                
+                return response;
+            };
 
             // Register event handlers first
             this.setupSocketHandlers();
@@ -80,8 +172,14 @@ function app() {
             
             const onConnected = () => {
                 this.log('Connected to PocketPaw Engine', 'success');
-                // Fetch initial status
+                // Fetch initial status and settings
                 socket.runTool('status');
+                socket.send('get_settings');
+                // Auto-activate agent mode
+                if (this.agentActive) {
+                    socket.toggleAgent(true);
+                    this.log('Agent Mode auto-activated', 'info');
+                }
             };
             
             socket.on('connected', onConnected);
@@ -104,6 +202,33 @@ function app() {
             socket.on('stream_start', () => this.startStreaming());
             socket.on('stream_end', () => this.endStreaming());
             socket.on('files', (data) => this.handleFiles(data));
+            socket.on('settings', (data) => this.handleSettings(data));
+
+            // Reminder handlers
+            socket.on('reminders', (data) => this.handleReminders(data));
+            socket.on('reminder_added', (data) => this.handleReminderAdded(data));
+            socket.on('reminder_deleted', (data) => this.handleReminderDeleted(data));
+            socket.on('reminder', (data) => this.handleReminderTriggered(data));
+
+            // Intention handlers
+            socket.on('intentions', (data) => this.handleIntentions(data));
+            socket.on('intention_created', (data) => this.handleIntentionCreated(data));
+            socket.on('intention_updated', (data) => this.handleIntentionUpdated(data));
+            socket.on('intention_toggled', (data) => this.handleIntentionToggled(data));
+            socket.on('intention_deleted', (data) => this.handleIntentionDeleted(data));
+            socket.on('intention_event', (data) => this.handleIntentionEvent(data));
+
+            // Skills handlers
+            socket.on('skills', (data) => this.handleSkills(data));
+            socket.on('skill_started', (data) => this.handleSkillStarted(data));
+            socket.on('skill_completed', (data) => this.handleSkillCompleted(data));
+            socket.on('skill_received', (data) => console.log('Skill received', data));
+            socket.on('skill_error', (data) => this.handleSkillError(data));
+
+            // Transparency handlers
+            socket.on('connection_info', (data) => this.handleConnectionInfo(data));
+            socket.on('system_event', (data) => this.handleSystemEvent(data));
+
         },
 
         /**
@@ -129,20 +254,22 @@ function app() {
          */
         handleMessage(data) {
             const content = data.content || '';
-            
+
             // Check if it's a status update (don't show in chat)
             if (content.includes('System Status') || content.includes('🧠 CPU:')) {
                 this.status = Tools.parseStatus(content);
                 return;
             }
-            
+
             // Handle streaming vs complete messages
             if (this.isStreaming) {
                 this.streamingContent += content;
+                // Scroll during streaming to follow new content
+                this.$nextTick(() => this.scrollToBottom());
             } else {
                 this.addMessage('assistant', content);
             }
-            
+
             this.log(content.substring(0, 80) + (content.length > 80 ? '...' : ''), 'info');
         },
 
@@ -152,6 +279,40 @@ function app() {
         handleStatus(data) {
             if (data.content) {
                 this.status = Tools.parseStatus(data.content);
+            }
+        },
+
+        /**
+         * Handle settings from server (on connect)
+         */
+        handleSettings(data) {
+            if (data.content) {
+                const serverSettings = data.content;
+                // Apply server settings to frontend state
+                if (serverSettings.agentBackend) {
+                    this.settings.agentBackend = serverSettings.agentBackend;
+                }
+                if (serverSettings.llmProvider) {
+                    this.settings.llmProvider = serverSettings.llmProvider;
+                }
+                if (serverSettings.anthropicModel) {
+                    this.settings.anthropicModel = serverSettings.anthropicModel;
+                }
+                if (serverSettings.bypassPermissions !== undefined) {
+                    this.settings.bypassPermissions = serverSettings.bypassPermissions;
+                }
+                // Store API key availability (for UI feedback)
+                this.hasAnthropicKey = serverSettings.hasAnthropicKey || false;
+                this.hasOpenaiKey = serverSettings.hasOpenaiKey || false;
+
+                // Log agent status if available (for debugging)
+                if (serverSettings.agentStatus) {
+                    const status = serverSettings.agentStatus;
+                    this.log(`Agent: ${status.backend} (available: ${status.available})`, 'info');
+                    if (status.features && status.features.length > 0) {
+                        this.log(`Features: ${status.features.join(', ')}`, 'info');
+                    }
+                }
             }
         },
 
@@ -216,6 +377,51 @@ function app() {
         },
 
         /**
+         * Handle reminders list
+         */
+        handleReminders(data) {
+            this.reminders = data.reminders || [];
+            this.reminderLoading = false;
+        },
+
+        /**
+         * Handle reminder added
+         */
+        handleReminderAdded(data) {
+            this.reminders.push(data.reminder);
+            this.reminderInput = '';
+            this.reminderLoading = false;
+            this.showToast('Reminder set!', 'success');
+        },
+
+        /**
+         * Handle reminder deleted
+         */
+        handleReminderDeleted(data) {
+            this.reminders = this.reminders.filter(r => r.id !== data.id);
+        },
+
+        /**
+         * Handle reminder triggered (notification)
+         */
+        handleReminderTriggered(data) {
+            const reminder = data.reminder;
+            this.showToast(`Reminder: ${reminder.text}`, 'info');
+            this.addMessage('assistant', `Reminder: ${reminder.text}`);
+
+            // Remove from local list
+            this.reminders = this.reminders.filter(r => r.id !== reminder.id);
+
+            // Try desktop notification
+            if (Notification.permission === 'granted') {
+                new Notification('PocketPaw Reminder', {
+                    body: reminder.text,
+                    icon: '/static/icon.png'
+                });
+            }
+        },
+
+        /**
          * Start streaming mode
          */
         startStreaming() {
@@ -243,13 +449,24 @@ function app() {
                 content,
                 time: Tools.formatTime()
             });
-            
-            // Auto scroll to bottom
+
+            // Auto scroll to bottom with slight delay for DOM update
             this.$nextTick(() => {
-                if (this.$refs.messages) {
-                    this.$refs.messages.scrollTop = this.$refs.messages.scrollHeight;
-                }
+                this.scrollToBottom();
             });
+        },
+
+        /**
+         * Scroll chat to bottom
+         */
+        scrollToBottom() {
+            const el = this.$refs.messages;
+            if (el) {
+                // Use requestAnimationFrame for smoother scrolling
+                requestAnimationFrame(() => {
+                    el.scrollTop = el.scrollHeight;
+                });
+            }
         },
 
         /**
@@ -258,17 +475,33 @@ function app() {
         sendMessage() {
             const text = this.inputText.trim();
             if (!text) return;
-            
+
+            // Check for skill command (starts with /)
+            if (text.startsWith('/')) {
+                const parts = text.slice(1).split(' ');
+                const skillName = parts[0];
+                const args = parts.slice(1).join(' ');
+
+                // Add user message
+                this.addMessage('user', text);
+                this.inputText = '';
+
+                // Run the skill
+                socket.send('run_skill', { name: skillName, args });
+                this.log(`Running skill: /${skillName} ${args}`, 'info');
+                return;
+            }
+
             // Add user message
             this.addMessage('user', text);
             this.inputText = '';
-            
+
             // Start streaming indicator
             this.startStreaming();
-            
+
             // Send to server
             socket.chat(text);
-            
+
             this.log(`You: ${text}`, 'info');
         },
 
@@ -352,6 +585,313 @@ function app() {
         },
 
         /**
+         * Open reminders panel
+         */
+        openReminders() {
+            this.showReminders = true;
+            this.reminderLoading = true;
+            socket.send('get_reminders');
+
+            // Request notification permission
+            if (Notification.permission === 'default') {
+                Notification.requestPermission();
+            }
+
+            this.$nextTick(() => {
+                if (window.refreshIcons) window.refreshIcons();
+            });
+        },
+
+        /**
+         * Add a reminder
+         */
+        addReminder() {
+            const text = this.reminderInput.trim();
+            if (!text) return;
+
+            this.reminderLoading = true;
+            socket.send('add_reminder', { message: text });
+            this.log(`Setting reminder: ${text}`, 'info');
+        },
+
+        /**
+         * Delete a reminder
+         */
+        deleteReminder(id) {
+            socket.send('delete_reminder', { id });
+        },
+
+        /**
+         * Format reminder time for display
+         */
+        formatReminderTime(reminder) {
+            const date = new Date(reminder.trigger_at);
+            return date.toLocaleString(undefined, {
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+        },
+
+        // ==================== Intentions ====================
+
+        /**
+         * Handle intentions list
+         */
+        handleIntentions(data) {
+            this.intentions = data.intentions || [];
+            this.intentionLoading = false;
+        },
+
+        /**
+         * Handle intention created
+         */
+        handleIntentionCreated(data) {
+            this.intentions.push(data.intention);
+            this.resetIntentionForm();
+            this.showToast('Intention created!', 'success');
+            this.$nextTick(() => {
+                if (window.refreshIcons) window.refreshIcons();
+            });
+        },
+
+        /**
+         * Handle intention updated
+         */
+        handleIntentionUpdated(data) {
+            const index = this.intentions.findIndex(i => i.id === data.intention.id);
+            if (index !== -1) {
+                this.intentions[index] = data.intention;
+            }
+        },
+
+        /**
+         * Handle intention toggled
+         */
+        handleIntentionToggled(data) {
+            const index = this.intentions.findIndex(i => i.id === data.intention.id);
+            if (index !== -1) {
+                this.intentions[index] = data.intention;
+            }
+            this.$nextTick(() => {
+                if (window.refreshIcons) window.refreshIcons();
+            });
+        },
+
+        /**
+         * Handle intention deleted
+         */
+        handleIntentionDeleted(data) {
+            this.intentions = this.intentions.filter(i => i.id !== data.id);
+        },
+
+        /**
+         * Handle intention execution events
+         */
+        handleIntentionEvent(data) {
+            const eventType = data.type;
+
+            if (eventType === 'intention_started') {
+                this.showToast(`Running: ${data.intention_name}`, 'info');
+                this.log(`Intention started: ${data.intention_name}`, 'info');
+                this.startStreaming();
+            } else if (eventType === 'intention_completed') {
+                this.log(`Intention completed: ${data.intention_name}`, 'success');
+                this.endStreaming();
+                // Refresh intentions to update next_run time
+                socket.send('get_intentions');
+            } else if (eventType === 'intention_error') {
+                this.showToast(`Error: ${data.error}`, 'error');
+                this.log(`Intention error: ${data.error}`, 'error');
+                this.endStreaming();
+            } else if (data.content) {
+                // Stream content from agent
+                if (this.isStreaming) {
+                    this.streamingContent += data.content;
+                }
+            }
+        },
+
+        /**
+         * Open intentions panel
+         */
+        openIntentions() {
+            this.showIntentions = true;
+            this.intentionLoading = true;
+            socket.send('get_intentions');
+
+            this.$nextTick(() => {
+                if (window.refreshIcons) window.refreshIcons();
+            });
+        },
+
+        /**
+         * Create a new intention
+         */
+        createIntention() {
+            const { name, prompt, schedulePreset, customCron, includeSystemStatus } = this.intentionForm;
+
+            if (!name.trim() || !prompt.trim() || !schedulePreset) {
+                this.showToast('Please fill in all fields', 'error');
+                return;
+            }
+
+            const schedule = schedulePreset === 'custom' ? customCron : schedulePreset;
+            if (!schedule) {
+                this.showToast('Please enter a schedule', 'error');
+                return;
+            }
+
+            const contextSources = includeSystemStatus ? ['system_status', 'datetime'] : ['datetime'];
+
+            socket.send('create_intention', {
+                name: name.trim(),
+                prompt: prompt.trim(),
+                trigger: { type: 'cron', schedule },
+                context_sources: contextSources,
+                enabled: true
+            });
+
+            this.log(`Creating intention: ${name}`, 'info');
+        },
+
+        /**
+         * Toggle intention enabled state
+         */
+        toggleIntention(id) {
+            socket.send('toggle_intention', { id });
+        },
+
+        /**
+         * Delete an intention
+         */
+        deleteIntention(id) {
+            if (confirm('Delete this intention?')) {
+                socket.send('delete_intention', { id });
+            }
+        },
+
+        /**
+         * Run an intention immediately
+         */
+        runIntention(id) {
+            socket.send('run_intention', { id });
+        },
+
+        /**
+         * Reset intention form
+         */
+        resetIntentionForm() {
+            this.intentionForm = {
+                name: '',
+                prompt: '',
+                schedulePreset: '',
+                customCron: '',
+                includeSystemStatus: false
+            };
+        },
+
+        /**
+         * Format next run time for display
+         */
+        formatNextRun(isoString) {
+            if (!isoString) return '';
+            const date = new Date(isoString);
+            const now = new Date();
+            const diff = date - now;
+
+            // If less than 1 hour away, show relative time
+            if (diff > 0 && diff < 3600000) {
+                const mins = Math.round(diff / 60000);
+                return `in ${mins}m`;
+            }
+
+            // Otherwise show time
+            return date.toLocaleString(undefined, {
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+        },
+
+        // ==================== Skills ====================
+
+        /**
+         * Handle skills list
+         */
+        handleSkills(data) {
+            this.skills = data.skills || [];
+            this.skillsLoading = false;
+            this.$nextTick(() => {
+                if (window.refreshIcons) window.refreshIcons();
+            });
+        },
+
+        /**
+         * Handle skill started
+         */
+        handleSkillStarted(data) {
+            this.showToast(`Running: ${data.skill_name}`, 'info');
+            this.log(`Skill started: ${data.skill_name}`, 'info');
+        },
+
+        /**
+         * Handle skill completed
+         */
+        handleSkillCompleted(data) {
+            this.log(`Skill completed: ${data.skill_name}`, 'success');
+        },
+
+        /**
+         * Handle skill error
+         */
+        handleSkillError(data) {
+            this.showToast(`Skill error: ${data.error}`, 'error');
+            this.log(`Skill error: ${data.error}`, 'error');
+        },
+
+        /**
+         * Open skills panel
+         */
+        openSkills() {
+            this.showSkills = true;
+            this.skillsLoading = true;
+            socket.send('get_skills');
+
+            this.$nextTick(() => {
+                if (window.refreshIcons) window.refreshIcons();
+            });
+        },
+
+        /**
+         * Run a skill
+         */
+        runSkill(name, args = '') {
+            this.showSkills = false;
+            socket.send('run_skill', { name, args });
+            this.log(`Running skill: ${name} ${args}`, 'info');
+        },
+
+        /**
+         * Check if input is a skill command and run it
+         */
+        checkSkillCommand(text) {
+            if (text.startsWith('/')) {
+                const parts = text.slice(1).split(' ');
+                const skillName = parts[0];
+                const args = parts.slice(1).join(' ');
+
+                // Check if skill exists
+                const skill = this.skills.find(s => s.name === skillName);
+                if (skill) {
+                    this.runSkill(skillName, args);
+                    return true;
+                }
+            }
+            return false;
+        },
+
+        /**
          * Toggle agent mode
          */
         toggleAgent() {
@@ -363,7 +903,12 @@ function app() {
          * Save settings
          */
         saveSettings() {
-            socket.saveSettings(this.settings.agentBackend, this.settings.llmProvider);
+            socket.saveSettings(
+                this.settings.agentBackend, 
+                this.settings.llmProvider, 
+                this.settings.anthropicModel,
+                this.settings.bypassPermissions
+            );
             this.log('Settings updated', 'info');
             this.showToast('Settings saved', 'success');
         },
@@ -426,6 +971,126 @@ function app() {
         },
 
         /**
+         * Get friendly label for current agent mode (shown in top bar)
+         */
+        getAgentModeLabel() {
+            const labels = {
+                'claude_agent_sdk': '🚀 Claude SDK',
+                'pocketpaw_native': '🐾 PocketPaw',
+                'open_interpreter': '🤖 Open Interpreter'
+            };
+            return labels[this.settings.agentBackend] || this.settings.agentBackend;
+        },
+
+        /**
+         * Get description for each backend (shown in settings)
+         */
+        getBackendDescription(backend) {
+            const descriptions = {
+                'claude_agent_sdk': 'Built-in tools: Bash, WebSearch, WebFetch, Read, Write, Edit, Glob, Grep',
+                'pocketpaw_native': 'Anthropic API + Open Interpreter executor. Direct subprocess for speed.',
+                'open_interpreter': 'Standalone agent. Works with local LLMs (Ollama) or cloud APIs.'
+            };
+            return descriptions[backend] || '';
+        },
+
+        // ==================== Transparency ====================
+
+        /**
+         * Handle connection info (capture session ID)
+         */
+        handleConnectionInfo(data) {
+            this.handleNotification(data);
+            if (data.id) {
+                this.sessionId = data.id;
+                this.log(`Session ID: ${data.id}`, 'info');
+            }
+        },
+
+        /**
+         * Handle system event (Activity Log)
+         */
+        handleSystemEvent(data) {
+           const time = Tools.formatTime();
+           let message = '';
+           let level = 'info';
+
+           if (data.event_type === 'thinking') {
+               message = `<span class="text-accent animate-pulse">Thinking...</span>`;
+           } else if (data.event_type === 'tool_start') {
+               message = `🔧 <b>${data.data.name}</b> <span class="text-white/50">${JSON.stringify(data.data.params)}</span>`;
+               level = 'warning';
+           } else if (data.event_type === 'tool_result') {
+               const isError = data.data.status === 'error';
+               level = isError ? 'error' : 'success';
+               message = `${isError ? '❌' : '✅'} <b>${data.data.name}</b> result: <span class="text-white/50">${String(data.data.result).substring(0, 50)} ${(String(data.data.result).length > 50) ? '...' : ''}</span>`;
+           } else {
+               message = `Unknown event: ${data.event_type}`;
+           }
+
+           this.activityLog.push({ time, message, level });
+           
+           // Auto-scroll activity log
+           this.$nextTick(() => {
+               const term = this.$refs.activityLog;
+               if (term) term.scrollTop = term.scrollHeight;
+           });
+        },
+
+        openIdentity() {
+            this.showIdentity = true;
+            this.identityLoading = true;
+            fetch('/api/identity')
+                .then(r => r.json())
+                .then(data => {
+                    this.identityData = data;
+                    this.identityLoading = false;
+                })
+                .catch(e => {
+                    this.showToast('Failed to load identity', 'error');
+                    this.identityLoading = false;
+                });
+        },
+
+        openMemory() {
+            this.showMemory = true;
+            this.loadSessionMemory();
+            this.loadLongTermMemory();
+        },
+
+        loadSessionMemory() {
+            if (!this.sessionId) return;
+            fetch(`/api/memory/session?id=${this.sessionId}`)
+                .then(r => r.json())
+                .then(data => {
+                    this.sessionMemory = data;
+                });
+        },
+
+        loadLongTermMemory() {
+            fetch('/api/memory/long_term')
+                .then(r => r.json())
+                .then(data => {
+                    this.longTermMemory = data;
+                });
+        },
+
+        openAudit() {
+            this.showAudit = true;
+            this.auditLoading = true;
+            fetch('/api/audit')
+                .then(r => r.json())
+                .then(data => {
+                    this.auditLogs = data;
+                    this.auditLoading = false;
+                })
+                .catch(e => {
+                     this.showToast('Failed to load audit logs', 'error');
+                     this.auditLoading = false;
+                });
+        },
+
+        /**
          * Get current time string
          */
         currentTime() {
@@ -437,6 +1102,79 @@ function app() {
          */
         showToast(message, type = 'info') {
             Tools.showToast(message, type, this.$refs.toasts);
+        },
+
+        // ==================== Remote Access ====================
+
+        /**
+         * Open Remote Access modal
+         */
+        async openRemote() {
+            this.showRemote = true;
+            this.tunnelLoading = true;
+            
+            try {
+                const res = await fetch('/api/remote/status');
+                if (res.ok) {
+                    this.remoteStatus = await res.json();
+                }
+            } catch (e) {
+                console.error('Failed to get tunnel status', e);
+            } finally {
+                this.tunnelLoading = false;
+            }
+        },
+
+        /**
+         * Toggle Cloudflare Tunnel
+         */
+        async toggleTunnel() {
+            this.tunnelLoading = true;
+            try {
+                const endpoint = this.remoteStatus.active ? '/api/remote/stop' : '/api/remote/start';
+                const res = await fetch(endpoint, { method: 'POST' });
+                const data = await res.json();
+                
+                if (data.error) {
+                    this.showToast(data.error, 'error');
+                } else {
+                    // Refresh status
+                    const statusRes = await fetch('/api/remote/status');
+                    this.remoteStatus = await statusRes.json();
+                    
+                    if (this.remoteStatus.active) {
+                        this.showToast('Tunnel Started! You can now access remotely.', 'success');
+                    } else {
+                        this.showToast('Tunnel Stopped.', 'info');
+                    }
+                }
+            } catch (e) {
+                this.showToast('Failed to toggle tunnel: ' + e.message, 'error');
+            } finally {
+                this.tunnelLoading = false;
+            }
+        },
+
+        /**
+         * Regenerate Access Token
+         */
+        async regenerateToken() {
+            if (!confirm('Are you sure? This will invalidate all existing sessions (including your phone).')) return;
+            
+            try {
+                const res = await fetch('/api/token/regenerate', { method: 'POST' });
+                const data = await res.json();
+                
+                if (data.token) {
+                    localStorage.setItem('pocketpaw_token', data.token);
+                    this.showToast('Token regenerated! Please re-scan the QR code.', 'success');
+                    // Force refresh QR code image
+                    this.showRemote = false;
+                    setTimeout(() => { this.showRemote = true; }, 100);
+                }
+            } catch (e) {
+                this.showToast('Failed to regenerate token', 'error');
+            }
         }
     };
 }

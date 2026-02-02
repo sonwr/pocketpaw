@@ -1,36 +1,69 @@
-"""Agent Router - routes to Open Interpreter or Claude Code."""
+"""Agent Router - routes to the selected agent backend.
+
+Changes:
+  - 2026-02-02: Added claude_agent_sdk_full for 2-layer architecture.
+  - 2026-02-02: Simplified - removed 2-layer mode (SDK has built-in execution).
+  - 2026-02-02: Added pocketpaw_native - custom orchestrator with OI executor.
+  - 2026-02-02: RE-ENABLED claude_agent_sdk - now uses official SDK properly!
+                claude_code still disabled (homebrew pyautogui approach).
+"""
 
 import logging
-from typing import AsyncIterator, Optional
+from typing import AsyncIterator
 
 from pocketclaw.config import Settings
 from pocketclaw.agents.open_interpreter import OpenInterpreterAgent
-from pocketclaw.agents.claude_code import ClaudeCodeAgent
 
 logger = logging.getLogger(__name__)
 
+# Backends that are currently DISABLED (kept for future integration)
+DISABLED_BACKENDS = {"claude_code"}  # claude_agent_sdk is now ENABLED!
+
 
 class AgentRouter:
-    """Routes agent requests to the selected backend."""
-    
+    """Routes agent requests to the selected backend.
+
+    ACTIVE backends:
+    - claude_agent_sdk: Official Claude Agent SDK with all built-in tools (RECOMMENDED)
+    - pocketpaw_native: PocketPaw's own brain + Open Interpreter hands
+    - open_interpreter: Standalone Open Interpreter (local/cloud LLMs)
+
+    DISABLED backends (for future use):
+    - claude_code: Homebrew Claude + pyautogui (needs work)
+    """
+
     def __init__(self, settings: Settings):
         self.settings = settings
-        self._agent: Optional[OpenInterpreterAgent | ClaudeCodeAgent] = None
+        self._agent = None
         self._initialize_agent()
-    
+
     def _initialize_agent(self) -> None:
         """Initialize the selected agent backend."""
         backend = self.settings.agent_backend
-        
-        if backend == "open_interpreter":
+
+        # Check if backend is disabled
+        if backend in DISABLED_BACKENDS:
+            logger.warning(f"⚠️ Backend '{backend}' disabled → using claude_agent_sdk")
+            backend = "claude_agent_sdk"
+
+        if backend == "claude_agent_sdk":
+            from pocketclaw.agents.claude_sdk import ClaudeAgentSDKWrapper
+            self._agent = ClaudeAgentSDKWrapper(self.settings)
+            logger.info("🚀 [bold green]Claude Agent SDK[/] ─ Bash, WebSearch, WebFetch, Read, Write")
+
+        elif backend == "pocketpaw_native":
+            from pocketclaw.agents.pocketpaw_native import PocketPawOrchestrator
+            self._agent = PocketPawOrchestrator(self.settings)
+            logger.info("🧠 [bold blue]PocketPaw Native[/] ─ Anthropic + Open Interpreter")
+
+        elif backend == "open_interpreter":
             self._agent = OpenInterpreterAgent(self.settings)
-            logger.info("🧠 Initialized Open Interpreter agent")
-        elif backend == "claude_code":
-            self._agent = ClaudeCodeAgent(self.settings)
-            logger.info("🧠 Initialized Claude Code agent")
+            logger.info("🤖 [bold yellow]Open Interpreter[/] ─ Local/Cloud LLMs")
+
         else:
-            logger.warning(f"Unknown agent backend: {backend}, defaulting to Open Interpreter")
-            self._agent = OpenInterpreterAgent(self.settings)
+            logger.warning(f"Unknown backend: {backend} → using claude_agent_sdk")
+            from pocketclaw.agents.claude_sdk import ClaudeAgentSDKWrapper
+            self._agent = ClaudeAgentSDKWrapper(self.settings)
     
     async def run(self, message: str) -> AsyncIterator[dict]:
         """Run the agent with the given message."""

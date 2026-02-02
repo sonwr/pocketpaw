@@ -24,8 +24,9 @@ class PocketPawSocket {
         }
         
         this.isConnecting = true;
-        const url = `ws://${window.location.host}/ws`;
-        console.log('[WS] Connecting to', url);
+        const token = localStorage.getItem('pocketpaw_token');
+        const url = `ws://${window.location.host}/ws` + (token ? `?token=${token}` : '');
+        console.log('[WS] Connecting to', `ws://${window.location.host}/ws...`);
 
         this.ws = new WebSocket(url);
 
@@ -46,8 +47,18 @@ class PocketPawSocket {
             }
         };
 
-        this.ws.onclose = () => {
-            console.log('[WS] Disconnected');
+        this.ws.onclose = (event) => {
+            console.log(`[WS] Disconnected (Code: ${event.code})`);
+            
+            // Handle Auth Failure specifically
+            if (event.code === 4003) {
+                console.error('[WS] Authentication failed');
+                this.emit('auth_error');
+                // Clear invalid token
+                localStorage.removeItem('pocketpaw_token');
+                return; // Do not reconnect
+            }
+
             this.isConnecting = false;
             this.isConnected = false;
             this.emit('disconnected');
@@ -161,10 +172,12 @@ class PocketPawSocket {
         this.send('chat', { message });
     }
 
-    saveSettings(agentBackend, llmProvider) {
+    saveSettings(agentBackend, llmProvider, anthropicModel, bypassPermissions) {
         this.send('settings', {
             agent_backend: agentBackend,
-            llm_provider: llmProvider
+            llm_provider: llmProvider,
+            anthropic_model: anthropicModel,
+            bypass_permissions: bypassPermissions
         });
     }
 

@@ -147,7 +147,7 @@ class TestConfig:
         
         settings = Settings()
         
-        assert settings.agent_backend == "open_interpreter"
+        assert settings.agent_backend == "claude_agent_sdk"  # New default
         assert settings.llm_provider == "auto"
         assert settings.web_port == 8888
         assert settings.ollama_model == "llama3.2"
