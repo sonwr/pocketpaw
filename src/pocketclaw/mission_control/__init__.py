@@ -47,6 +47,13 @@ Usage:
 # Manager
 # API
 from pocketclaw.mission_control.api import router as mission_control_router
+
+# Heartbeat
+from pocketclaw.mission_control.heartbeat import (
+    HeartbeatDaemon,
+    get_heartbeat_daemon,
+    reset_heartbeat_daemon,
+)
 from pocketclaw.mission_control.manager import (
     MissionControlManager,
     get_mission_control_manager,
@@ -98,4 +105,8 @@ __all__ = [
     "reset_mission_control_manager",
     # API
     "mission_control_router",
+    # Heartbeat
+    "HeartbeatDaemon",
+    "get_heartbeat_daemon",
+    "reset_heartbeat_daemon",
 ]
