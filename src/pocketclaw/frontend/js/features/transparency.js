@@ -76,6 +76,12 @@ window.PocketPaw.Transparency = {
                     return;
                 }
 
+                // Handle inbox update events
+                if (eventType === 'inbox_update') {
+                    if (this.handleInboxUpdate) this.handleInboxUpdate(data.data || {});
+                    return;
+                }
+
                 // Handle standard system events
                 let message = '';
                 let level = 'info';
@@ -140,12 +146,12 @@ window.PocketPaw.Transparency = {
                 fetch('/api/memory/sessions')
                     .then(r => r.json())
                     .then(data => {
-                        this.sessionsList = data;
+                        this.sessionsList = Array.isArray(data) ? data : (data.sessions || []);
                         this.updateMemoryStats();
 
                         // Auto-select current session if in list
-                        if (this.sessionId && data.some(s => s.id === this.sessionId)) {
-                            this.selectSession(this.sessionId);
+                        if (this.sessionId && this.sessionsList.some(s => s.id === this.sessionId)) {
+                            this.selectMemorySession(this.sessionId);
                         }
                     })
                     .catch(e => {
@@ -153,7 +159,7 @@ window.PocketPaw.Transparency = {
                     });
             },
 
-            selectSession(sessionId) {
+            selectMemorySession(sessionId) {
                 this.selectedSession = sessionId;
                 fetch(`/api/memory/session?id=${sessionId}`)
                     .then(r => r.json())

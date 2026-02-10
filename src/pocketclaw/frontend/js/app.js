@@ -24,7 +24,8 @@ function app() {
         ...window.PocketPaw.RemoteAccess.getState(),
         ...window.PocketPaw.MissionControl.getState(),
         ...window.PocketPaw.Channels.getState(),
-        ...window.PocketPaw.MCP.getState()
+        ...window.PocketPaw.MCP.getState(),
+        ...window.PocketPaw.Sessions.getState()
     };
 
     // Assemble feature methods
@@ -38,7 +39,8 @@ function app() {
         ...window.PocketPaw.RemoteAccess.getMethods(),
         ...window.PocketPaw.MissionControl.getMethods(),
         ...window.PocketPaw.Channels.getMethods(),
-        ...window.PocketPaw.MCP.getMethods()
+        ...window.PocketPaw.MCP.getMethods(),
+        ...window.PocketPaw.Sessions.getMethods()
     };
 
     return {
@@ -49,6 +51,20 @@ function app() {
         showSettings: false,
         showScreenshot: false,
         screenshotSrc: '',
+
+        // Settings panel state
+        settingsSection: 'general',
+        settingsMobileView: 'list',
+        settingsSections: [
+            { id: 'general', label: 'General', icon: 'settings' },
+            { id: 'security', label: 'Security', icon: 'shield' },
+            { id: 'behavior', label: 'Behavior', icon: 'brain' },
+            { id: 'memory', label: 'Memory', icon: 'database' },
+            { id: 'apikeys', label: 'API Keys', icon: 'key' },
+            { id: 'search', label: 'Search', icon: 'search' },
+            { id: 'services', label: 'Services', icon: 'puzzle' },
+            { id: 'system', label: 'System', icon: 'activity' },
+        ],
 
         // Terminal logs
         logs: [],
@@ -165,10 +181,33 @@ function app() {
             this.setupSocketHandlers();
 
             // Connect WebSocket (singleton - will only connect once)
-            socket.connect();
+            const lastSession = StateManager.load('lastSession');
+            socket.connect(lastSession);
+
+            // Load sessions for sidebar
+            this.loadSessions();
 
             // Start status polling (low frequency)
             this.startStatusPolling();
+
+            // Keyboard shortcuts
+            document.addEventListener('keydown', (e) => {
+                // Cmd/Ctrl+N: New chat
+                if ((e.metaKey || e.ctrlKey) && e.key === 'n') {
+                    e.preventDefault();
+                    this.createNewChat();
+                }
+                // Cmd/Ctrl+K: Focus search
+                if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+                    e.preventDefault();
+                    const searchInput = document.querySelector('.session-search-input');
+                    if (searchInput) searchInput.focus();
+                }
+                // Escape: Cancel rename
+                if (e.key === 'Escape' && this.editingSessionId) {
+                    this.cancelRenameSession();
+                }
+            });
 
             // Refresh Lucide icons after initial render
             this.$nextTick(() => {
@@ -193,6 +232,12 @@ function app() {
                 socket.send('get_reminders');
                 socket.send('get_intentions');
                 socket.send('get_skills');
+
+                // Resume last session if WS connect didn't handle it via query param
+                const lastSession = StateManager.load('lastSession');
+                if (lastSession && !this.currentSessionId) {
+                    this.selectSession(lastSession);
+                }
 
                 // Auto-activate agent mode
                 if (this.agentActive) {
@@ -247,6 +292,10 @@ function app() {
             // Transparency handlers
             socket.on('connection_info', (data) => this.handleConnectionInfo(data));
             socket.on('system_event', (data) => this.handleSystemEvent(data));
+
+            // Session handlers
+            socket.on('session_history', (data) => this.handleSessionHistory(data));
+            socket.on('new_session', (data) => this.handleNewSession(data));
 
             // Note: Mission Control events come through system_event
             // They are handled in handleSystemEvent based on event_type prefix 'mc_'
@@ -415,6 +464,14 @@ function app() {
             }
 
             socket.runTool(tool);
+        },
+
+        /**
+         * Open settings modal (resets mobile view)
+         */
+        openSettings() {
+            this.settingsMobileView = 'list';
+            this.showSettings = true;
         },
 
         /**

@@ -123,6 +123,10 @@ window.PocketPaw.Chat = {
                 this.isStreaming = false;
                 this.isThinking = false;
                 this.streamingContent = '';
+
+                // Refresh sidebar sessions and auto-title
+                if (this.loadSessions) this.loadSessions();
+                if (this.autoTitleCurrentSession) this.autoTitleCurrentSession();
             },
 
             /**

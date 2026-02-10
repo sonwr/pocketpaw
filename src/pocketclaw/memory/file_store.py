@@ -1,11 +1,13 @@
 # File-based memory store implementation.
 # Created: 2026-02-02 - Memory System
 # Updated: 2026-02-09 - Fixed UUID collision, daily file loading, search, persistent delete
+# Updated: 2026-02-10 - Session index for fast listing, delete/rename support
 #
 # Stores memories as markdown files for human readability:
 # - ~/.pocketclaw/memory/MEMORY.md     (long-term)
 # - ~/.pocketclaw/memory/2026-02-02.md (daily)
 # - ~/.pocketclaw/memory/sessions/     (session JSON files)
+# - ~/.pocketclaw/memory/sessions/_index.json (session metadata index)
 
 import asyncio
 import json
@@ -165,6 +167,157 @@ class FileMemoryStore:
         self._session_write_locks: dict[str, asyncio.Lock] = {}
         self._load_index()
 
+        # Build session index on first run (migration)
+        if not self._index_path.exists():
+            self.rebuild_session_index()
+
+    # =========================================================================
+    # Session Index
+    # =========================================================================
+
+    @property
+    def _index_path(self) -> Path:
+        """Path to the session index file."""
+        return self.sessions_path / "_index.json"
+
+    def _load_session_index(self) -> dict:
+        """Read session index from disk. Returns empty dict if missing/corrupt."""
+        if not self._index_path.exists():
+            return {}
+        try:
+            return json.loads(self._index_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return {}
+
+    def _save_session_index(self, index: dict) -> None:
+        """Atomic write of session index (write to .tmp then rename)."""
+        tmp = self._index_path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(index, indent=2), encoding="utf-8")
+        tmp.rename(self._index_path)
+
+    def _update_session_index(
+        self, session_key: str, entry: MemoryEntry, session_data: list[dict]
+    ) -> None:
+        """Update a single entry in the session index after a message save."""
+        index = self._load_session_index()
+        safe_key = session_key.replace(":", "_").replace("/", "_")
+
+        # Extract channel from session_key (format: "channel:uuid")
+        parts = session_key.split(":", 1)
+        channel = parts[0] if len(parts) > 1 else "unknown"
+
+        # Find first user message for title
+        title = ""
+        for msg in session_data:
+            if msg.get("role") == "user" and msg.get("content", "").strip():
+                title = msg["content"].strip()[:80]
+                break
+        if not title:
+            title = "New Chat"
+
+        # Last message preview
+        last_msg = session_data[-1] if session_data else {}
+        preview = last_msg.get("content", "")[:120]
+
+        # Timestamps
+        first_msg = session_data[0] if session_data else {}
+        created = first_msg.get("timestamp", datetime.now().isoformat())
+        last_activity = last_msg.get("timestamp", datetime.now().isoformat())
+
+        # Preserve existing title if user renamed it
+        existing = index.get(safe_key, {})
+        if existing.get("user_title"):
+            title = existing["user_title"]
+
+        index[safe_key] = {
+            "title": title,
+            "channel": channel,
+            "created": existing.get("created", created),
+            "last_activity": last_activity,
+            "message_count": len(session_data),
+            "preview": preview,
+        }
+        # Preserve user_title flag if set
+        if existing.get("user_title"):
+            index[safe_key]["user_title"] = existing["user_title"]
+
+        self._save_session_index(index)
+
+    def rebuild_session_index(self) -> dict:
+        """Full directory scan to build index from all session files."""
+        index: dict = {}
+        for session_file in self.sessions_path.glob("*.json"):
+            if session_file.name.startswith("_") or session_file.name.endswith("_compaction.json"):
+                continue
+
+            safe_key = session_file.stem
+            try:
+                data = json.loads(session_file.read_text(encoding="utf-8"))
+                if not data or not isinstance(data, list):
+                    continue
+
+                # Derive channel from safe_key (format: "channel_uuid")
+                parts = safe_key.split("_", 1)
+                channel = parts[0] if len(parts) > 1 else "unknown"
+
+                # First user message as title
+                title = "New Chat"
+                for msg in data:
+                    if msg.get("role") == "user" and msg.get("content", "").strip():
+                        title = msg["content"].strip()[:80]
+                        break
+
+                first_msg = data[0]
+                last_msg = data[-1]
+
+                index[safe_key] = {
+                    "title": title,
+                    "channel": channel,
+                    "created": first_msg.get("timestamp", ""),
+                    "last_activity": last_msg.get("timestamp", ""),
+                    "message_count": len(data),
+                    "preview": last_msg.get("content", "")[:120],
+                }
+            except (json.JSONDecodeError, KeyError, OSError):
+                continue
+
+        self._save_session_index(index)
+        return index
+
+    def delete_session(self, session_key: str) -> bool:
+        """Delete a session file, compaction cache, and index entry."""
+        safe_key = session_key.replace(":", "_").replace("/", "_")
+        session_file = self.sessions_path / f"{safe_key}.json"
+        compaction_file = self.sessions_path / f"{safe_key}_compaction.json"
+
+        if not session_file.exists():
+            return False
+
+        session_file.unlink()
+        if compaction_file.exists():
+            compaction_file.unlink()
+
+        # Remove from index
+        index = self._load_session_index()
+        index.pop(safe_key, None)
+        self._save_session_index(index)
+
+        # Clean up write lock
+        self._session_write_locks.pop(session_key, None)
+
+        return True
+
+    def update_session_title(self, session_key: str, title: str) -> bool:
+        """Update the title of a session in the index."""
+        safe_key = session_key.replace(":", "_").replace("/", "_")
+        index = self._load_session_index()
+        if safe_key not in index:
+            return False
+        index[safe_key]["title"] = title
+        index[safe_key]["user_title"] = title  # Mark as user-renamed
+        self._save_session_index(index)
+        return True
+
     def _load_index(self) -> None:
         """Load existing memories into index."""
         # Load long-term memories
@@ -299,6 +452,9 @@ class FileMemoryStore:
 
             # Save back
             session_file.write_text(json.dumps(session_data, indent=2))
+
+            # Update session index
+            self._update_session_index(entry.session_key, entry, session_data)
 
     async def get(self, entry_id: str) -> MemoryEntry | None:
         """Get a memory entry by ID."""

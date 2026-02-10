@@ -20,6 +20,7 @@ import logging
 from pocketclaw.agents.router import AgentRouter
 from pocketclaw.bootstrap import AgentContextBuilder
 from pocketclaw.bus import InboundMessage, OutboundMessage, SystemEvent, get_message_bus
+from pocketclaw.bus.events import Channel
 from pocketclaw.config import Settings, get_settings
 from pocketclaw.memory import get_memory_manager
 from pocketclaw.security.injection_scanner import ThreatLevel, get_injection_scanner
@@ -95,9 +96,7 @@ class AgentLoop:
             async with self._session_locks[session_key]:
                 await self._process_message_inner(message, session_key)
 
-    async def _process_message_inner(
-        self, message: InboundMessage, session_key: str
-    ) -> None:
+    async def _process_message_inner(self, message: InboundMessage, session_key: str) -> None:
         """Inner message processing (called under concurrency guards)."""
         # Keep context_builder in sync if memory manager was hot-reloaded
         if self.context_builder.memory is not self.memory:
@@ -310,6 +309,19 @@ class AgentLoop:
                 await self.memory.add_to_session(
                     session_key=session_key, role="assistant", content=full_response
                 )
+
+                # Notify inbox for cross-channel updates
+                if message.channel != Channel.WEBSOCKET:
+                    await self.bus.publish_system(
+                        SystemEvent(
+                            event_type="inbox_update",
+                            data={
+                                "channel": message.channel.value,
+                                "session_key": session_key,
+                                "preview": full_response[:120],
+                            },
+                        )
+                    )
 
                 # 6. Auto-learn: extract facts from conversation (non-blocking)
                 should_auto_learn = (

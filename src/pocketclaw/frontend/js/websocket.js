@@ -15,17 +15,22 @@ class PocketPawSocket {
 
     /**
      * Connect to WebSocket server (only if not already connected)
+     * @param {string|null} resumeSessionId - Optional session ID to resume
      */
-    connect() {
+    connect(resumeSessionId = null) {
         // Prevent multiple connections
         if (this.isConnected || this.isConnecting) {
             console.log('[WS] Already connected or connecting');
             return;
         }
-        
+
         this.isConnecting = true;
         const token = localStorage.getItem('pocketpaw_token');
-        const url = `ws://${window.location.host}/ws` + (token ? `?token=${token}` : '');
+        let url = `ws://${window.location.host}/ws`;
+        const params = [];
+        if (token) params.push(`token=${token}`);
+        if (resumeSessionId) params.push(`resume_session=${resumeSessionId}`);
+        if (params.length > 0) url += '?' + params.join('&');
         console.log('[WS] Connecting to', `ws://${window.location.host}/ws...`);
 
         this.ws = new WebSocket(url);
@@ -207,6 +212,14 @@ class PocketPawSocket {
 
     saveApiKey(provider, key) {
         this.send('save_api_key', { provider, key });
+    }
+
+    switchSession(sessionId) {
+        this.send('switch_session', { session_id: sessionId });
+    }
+
+    newSession() {
+        this.send('new_session');
     }
 }
 

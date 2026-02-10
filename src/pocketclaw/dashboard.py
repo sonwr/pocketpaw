@@ -1414,7 +1414,11 @@ async def get_telegram_pairing_status():
 
 
 @app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket, token: str | None = Query(None)):
+async def websocket_endpoint(
+    websocket: WebSocket,
+    token: str | None = Query(None),
+    resume_session: str | None = Query(None),
+):
     """WebSocket endpoint for real-time communication."""
     # Verify Token
     expected_token = get_access_token()
@@ -1424,9 +1428,6 @@ async def websocket_endpoint(websocket: WebSocket, token: str | None = Query(Non
     is_localhost = client_host == "127.0.0.1" or client_host == "localhost"
 
     if token != expected_token and not is_localhost:
-        # Try waiting for an initial message with token?
-        # Standard usage: ws://host/ws?token=XYZ
-        # If missing/invalid, close.
         await websocket.close(code=4003, reason="Unauthorized")
         return
 
@@ -1435,18 +1436,54 @@ async def websocket_endpoint(websocket: WebSocket, token: str | None = Query(Non
     # Track connection
     active_connections.append(websocket)
 
-    # Generate session ID for bus
+    # Generate session ID for bus (or resume existing)
     chat_id = str(uuid.uuid4())
+
+    # Resume session if requested
+    resumed = False
+    if resume_session:
+        # Parse safe_key to extract channel and raw UUID
+        parts = resume_session.split("_", 1)
+        if len(parts) == 2 and parts[0] == "websocket":
+            raw_id = parts[1]
+            session_key = f"websocket:{raw_id}"
+            # Verify session file exists
+            session_file = (
+                Path.home() / ".pocketclaw" / "memory" / "sessions" / f"{resume_session}.json"
+            )
+            if session_file.exists():
+                chat_id = raw_id
+                resumed = True
+
     await ws_adapter.register_connection(websocket, chat_id)
+
+    # Build session safe_key for frontend
+    safe_key = f"websocket_{chat_id}"
 
     # Send welcome notification with session info
     await websocket.send_json(
         {
             "type": "connection_info",
-            "content": "👋 Connected to PocketPaw",
-            "id": chat_id,
+            "content": "Connected to PocketPaw",
+            "id": safe_key,
         }
     )
+
+    # If resuming, send session history
+    if resumed:
+        session_key = f"websocket:{chat_id}"
+        try:
+            manager = get_memory_manager()
+            history = await manager.get_session_history(session_key, limit=100)
+            await websocket.send_json(
+                {
+                    "type": "session_history",
+                    "session_id": safe_key,
+                    "messages": history,
+                }
+            )
+        except Exception as e:
+            logger.warning("Failed to load session history for resume: %s", e)
 
     # Load settings
     settings = Settings.load()
@@ -1470,6 +1507,46 @@ async def websocket_endpoint(websocket: WebSocket, token: str | None = Query(Non
                 # But allow fallback to old router if 'agent_active' is toggled specifically for old behavior?
                 # Actually, let's treat 'chat' as input to the Bus.
                 await ws_adapter.handle_message(chat_id, data)
+
+            # Session switching
+            elif action == "switch_session":
+                session_id = data.get("session_id", "")
+                # Parse safe_key: "websocket_<uuid>"
+                parts = session_id.split("_", 1)
+                if len(parts) == 2:
+                    channel_prefix = parts[0]
+                    raw_id = parts[1]
+                    new_session_key = f"{channel_prefix}:{raw_id}"
+
+                    # Unregister old connection, register with new chat_id
+                    await ws_adapter.unregister_connection(chat_id)
+                    chat_id = raw_id
+                    await ws_adapter.register_connection(websocket, chat_id)
+
+                    # Load and send history
+                    try:
+                        manager = get_memory_manager()
+                        history = await manager.get_session_history(new_session_key, limit=100)
+                        await websocket.send_json(
+                            {
+                                "type": "session_history",
+                                "session_id": session_id,
+                                "messages": history,
+                            }
+                        )
+                    except Exception as e:
+                        logger.warning("Failed to load session history: %s", e)
+                        await websocket.send_json(
+                            {"type": "session_history", "session_id": session_id, "messages": []}
+                        )
+
+            # New session
+            elif action == "new_session":
+                await ws_adapter.unregister_connection(chat_id)
+                chat_id = str(uuid.uuid4())
+                await ws_adapter.register_connection(websocket, chat_id)
+                safe_key = f"websocket_{chat_id}"
+                await websocket.send_json({"type": "new_session", "id": safe_key})
 
             # Legacy/Other actions
             elif action == "tool":
@@ -1908,45 +1985,155 @@ async def get_identity():
     }
 
 
+@app.get("/api/sessions")
+async def list_sessions_v2(limit: int = 50):
+    """List sessions using the fast session index."""
+    manager = get_memory_manager()
+    store = manager._store
+
+    if hasattr(store, "_load_session_index"):
+        index = store._load_session_index()
+        # Sort by last_activity descending
+        entries = sorted(
+            index.items(),
+            key=lambda kv: kv[1].get("last_activity", ""),
+            reverse=True,
+        )[:limit]
+        sessions = []
+        for safe_key, meta in entries:
+            sessions.append({"id": safe_key, **meta})
+        return {"sessions": sessions, "total": len(index)}
+
+    # Fallback for non-file stores
+    return {"sessions": [], "total": 0}
+
+
 @app.get("/api/memory/sessions")
 async def list_sessions(limit: int = 20):
-    """List all available sessions with metadata."""
+    """List all available sessions with metadata (legacy endpoint)."""
+    result = await list_sessions_v2(limit=limit)
+    return result.get("sessions", [])
+
+
+@app.delete("/api/sessions/{session_id}")
+async def delete_session(session_id: str):
+    """Delete a session by ID."""
+    manager = get_memory_manager()
+    store = manager._store
+
+    if hasattr(store, "delete_session"):
+        deleted = store.delete_session(session_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Session not found")
+        return {"status": "ok"}
+
+    raise HTTPException(status_code=501, detail="Store does not support session deletion")
+
+
+@app.post("/api/sessions/{session_id}/title")
+async def update_session_title(session_id: str, request: Request):
+    """Update the title of a session."""
+    data = await request.json()
+    title = data.get("title", "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Title is required")
+
+    manager = get_memory_manager()
+    store = manager._store
+
+    if hasattr(store, "update_session_title"):
+        updated = store.update_session_title(session_id, title)
+        if not updated:
+            raise HTTPException(status_code=404, detail="Session not found")
+        return {"status": "ok"}
+
+    raise HTTPException(status_code=501, detail="Store does not support title updates")
+
+
+@app.get("/api/sessions/search")
+async def search_sessions(q: str = Query(""), limit: int = 20):
+    """Search sessions by content."""
     import json
-    from pathlib import Path
 
-    sessions_path = Path.home() / ".pocketclaw" / "memory" / "sessions"
+    if not q.strip():
+        return {"sessions": []}
 
-    if not sessions_path.exists():
-        return []
+    query_lower = q.lower()
+    manager = get_memory_manager()
+    store = manager._store
 
-    sessions = []
-    for session_file in sorted(
-        sessions_path.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True
-    ):
-        if len(sessions) >= limit:
-            break
+    if not hasattr(store, "sessions_path"):
+        return {"sessions": []}
 
+    results = []
+    index = store._load_session_index() if hasattr(store, "_load_session_index") else {}
+
+    for session_file in store.sessions_path.glob("*.json"):
+        if session_file.name.startswith("_") or session_file.name.endswith("_compaction.json"):
+            continue
         try:
             data = json.loads(session_file.read_text())
-            if data:
-                # Get first and last message for preview
-                first_msg = data[0] if data else {}
-                last_msg = data[-1] if data else {}
-
-                sessions.append(
-                    {
-                        "id": session_file.stem,  # Remove .json extension
-                        "message_count": len(data),
-                        "first_message": first_msg.get("content", "")[:100],
-                        "last_message": last_msg.get("content", "")[:100],
-                        "updated_at": last_msg.get("timestamp", ""),
-                        "created_at": first_msg.get("timestamp", ""),
-                    }
-                )
-        except (json.JSONDecodeError, KeyError):
+            for msg in data:
+                if query_lower in msg.get("content", "").lower():
+                    safe_key = session_file.stem
+                    meta = index.get(safe_key, {})
+                    results.append(
+                        {
+                            "id": safe_key,
+                            "title": meta.get("title", "Untitled"),
+                            "channel": meta.get("channel", "unknown"),
+                            "match": msg["content"][:200],
+                            "match_role": msg.get("role", ""),
+                            "last_activity": meta.get("last_activity", ""),
+                        }
+                    )
+                    break
+        except (json.JSONDecodeError, OSError):
             continue
+        if len(results) >= limit:
+            break
 
-    return sessions
+    return {"sessions": results}
+
+
+@app.get("/api/sessions/recent")
+async def list_recent_sessions(limit: int = 20):
+    """List recent sessions with last 2 messages for inbox preview."""
+    import json
+
+    manager = get_memory_manager()
+    store = manager._store
+
+    if not hasattr(store, "_load_session_index"):
+        return {"sessions": []}
+
+    index = store._load_session_index()
+    entries = sorted(
+        index.items(),
+        key=lambda kv: kv[1].get("last_activity", ""),
+        reverse=True,
+    )[:limit]
+
+    sessions = []
+    for safe_key, meta in entries:
+        session_file = store.sessions_path / f"{safe_key}.json"
+        last_messages = []
+        if session_file.exists():
+            try:
+                data = json.loads(session_file.read_text())
+                for msg in data[-2:]:
+                    last_messages.append(
+                        {
+                            "role": msg.get("role", ""),
+                            "content": msg.get("content", "")[:200],
+                            "timestamp": msg.get("timestamp", ""),
+                        }
+                    )
+            except (json.JSONDecodeError, OSError):
+                pass
+        sessions.append({"id": safe_key, **meta, "last_messages": last_messages})
+
+    return {"sessions": sessions}
 
 
 @app.get("/api/memory/session")
