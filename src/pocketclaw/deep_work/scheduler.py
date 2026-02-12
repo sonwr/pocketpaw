@@ -2,6 +2,7 @@
 # Created: 2026-02-12
 # Updated: 2026-02-12 — Treat SKIPPED status same as DONE for blocker resolution
 #   and project completion checks.
+#   Optimized: use get_project_tasks (no 100-limit), concurrent dispatch.
 #
 # Key features:
 # - get_ready_tasks: finds tasks with all blockers satisfied (DONE or SKIPPED)
@@ -9,6 +10,7 @@
 # - validate_graph: cycle detection via Kahn's algorithm (works with Task and TaskSpec)
 # - get_execution_order: groups tasks by dependency level (works with Task and TaskSpec)
 
+import asyncio
 import logging
 from collections import deque
 
@@ -63,8 +65,7 @@ class DependencyScheduler:
         Returns:
             List of tasks ready to be dispatched
         """
-        all_tasks = await self.manager.list_tasks()
-        project_tasks = [t for t in all_tasks if t.project_id == project_id]
+        project_tasks = await self.manager.get_project_tasks(project_id)
         resolved_ids = {
             t.id for t in project_tasks if t.status in (TaskStatus.DONE, TaskStatus.SKIPPED)
         }
@@ -88,14 +89,18 @@ class DependencyScheduler:
             return
 
         ready = await self.get_ready_tasks(task.project_id)
-        for ready_task in ready:
-            await self._dispatch_task(ready_task)
+        if ready:
+            # Dispatch all ready tasks concurrently
+            await asyncio.gather(*(self._dispatch_task(t) for t in ready))
 
         # Check if entire project is now complete
         await self.check_project_completion(task.project_id)
 
     async def _dispatch_task(self, task: Task):
         """Dispatch a single task based on its type.
+
+        Includes a status guard to prevent duplicate dispatch when multiple
+        upstream tasks complete simultaneously.
 
         - agent tasks: sent to executor with first assignee
         - human tasks: routed to human_router.notify_human_task
@@ -104,23 +109,34 @@ class DependencyScheduler:
         Args:
             task: Task to dispatch
         """
-        if task.task_type == "agent":
-            agent_id = task.assignee_ids[0] if task.assignee_ids else None
+        # Guard: re-fetch task to check it hasn't already been dispatched
+        # by a concurrent on_task_completed call.
+        fresh = await self.manager.get_task(task.id)
+        if not fresh or fresh.status not in (TaskStatus.INBOX, TaskStatus.ASSIGNED):
+            logger.debug(
+                "Skipping dispatch for %s: status=%s",
+                task.id,
+                fresh.status if fresh else None,
+            )
+            return
+
+        if fresh.task_type == "agent":
+            agent_id = fresh.assignee_ids[0] if fresh.assignee_ids else None
             if agent_id:
-                logger.info(f"Auto-dispatching agent task: {task.title}")
-                await self.executor.execute_task_background(task.id, agent_id)
+                logger.info(f"Auto-dispatching agent task: {fresh.title}")
+                await self.executor.execute_task_background(fresh.id, agent_id)
             else:
-                logger.warning(f"Agent task has no assignee: {task.title}")
-        elif task.task_type == "human":
+                logger.warning(f"Agent task has no assignee: {fresh.title}")
+        elif fresh.task_type == "human":
             if self.human_router:
-                logger.info(f"Routing human task: {task.title}")
-                await self.human_router.notify_human_task(task)
+                logger.info(f"Routing human task: {fresh.title}")
+                await self.human_router.notify_human_task(fresh)
             else:
-                logger.warning(f"Human task but no router: {task.title}")
-        elif task.task_type == "review":
+                logger.warning(f"Human task but no router: {fresh.title}")
+        elif fresh.task_type == "review":
             if self.human_router:
-                logger.info(f"Routing review task: {task.title}")
-                await self.human_router.notify_review_task(task)
+                logger.info(f"Routing review task: {fresh.title}")
+                await self.human_router.notify_review_task(fresh)
 
     async def check_project_completion(self, project_id: str) -> bool:
         """Check if ALL tasks in project are DONE. If yes, mark project COMPLETED.
@@ -131,8 +147,7 @@ class DependencyScheduler:
         Returns:
             True if project is now completed
         """
-        all_tasks = await self.manager.list_tasks()
-        project_tasks = [t for t in all_tasks if t.project_id == project_id]
+        project_tasks = await self.manager.get_project_tasks(project_id)
 
         if not project_tasks:
             return False

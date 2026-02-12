@@ -25,6 +25,7 @@ def mock_manager():
     """Create a mock MissionControlManager."""
     manager = AsyncMock()
     manager.list_tasks = AsyncMock(return_value=[])
+    manager.get_project_tasks = AsyncMock(return_value=[])
     manager.get_task = AsyncMock(return_value=None)
     manager.get_project = AsyncMock(return_value=None)
     manager.update_project = AsyncMock()
@@ -89,7 +90,7 @@ class TestGetReadyTasks:
             _make_task("t2", status=TaskStatus.DONE),
             _make_task("t3", status=TaskStatus.INBOX, blocked_by=["t1", "t2"]),
         ]
-        mock_manager.list_tasks.return_value = tasks
+        mock_manager.get_project_tasks.return_value = tasks
 
         ready = await scheduler.get_ready_tasks("proj-1")
 
@@ -103,7 +104,7 @@ class TestGetReadyTasks:
             _make_task("t2", status=TaskStatus.IN_PROGRESS),
             _make_task("t3", status=TaskStatus.INBOX, blocked_by=["t1", "t2"]),
         ]
-        mock_manager.list_tasks.return_value = tasks
+        mock_manager.get_project_tasks.return_value = tasks
 
         ready = await scheduler.get_ready_tasks("proj-1")
 
@@ -115,7 +116,7 @@ class TestGetReadyTasks:
             _make_task("t1", status=TaskStatus.IN_PROGRESS),
             _make_task("t2", status=TaskStatus.INBOX),
         ]
-        mock_manager.list_tasks.return_value = tasks
+        mock_manager.get_project_tasks.return_value = tasks
 
         ready = await scheduler.get_ready_tasks("proj-1")
 
@@ -129,24 +130,25 @@ class TestGetReadyTasks:
             _make_task("t1", status=TaskStatus.INBOX),
             _make_task("t2", status=TaskStatus.ASSIGNED),
         ]
-        mock_manager.list_tasks.return_value = tasks
+        mock_manager.get_project_tasks.return_value = tasks
 
         ready = await scheduler.get_ready_tasks("proj-1")
 
         assert len(ready) == 2
 
     async def test_filters_by_project_id(self, scheduler, mock_manager):
-        """Only tasks matching the project_id should be considered."""
+        """get_project_tasks returns only tasks for the given project."""
+        # get_project_tasks already filters — mock returns only proj-1 tasks
         tasks = [
             _make_task("t1", status=TaskStatus.INBOX, project_id="proj-1"),
-            _make_task("t2", status=TaskStatus.INBOX, project_id="proj-2"),
         ]
-        mock_manager.list_tasks.return_value = tasks
+        mock_manager.get_project_tasks.return_value = tasks
 
         ready = await scheduler.get_ready_tasks("proj-1")
 
         assert len(ready) == 1
         assert ready[0].id == "t1"
+        mock_manager.get_project_tasks.assert_awaited_once_with("proj-1")
 
 
 # ============================================================================
@@ -166,8 +168,9 @@ class TestOnTaskCompleted:
             assignee_ids=["agent-1"],
         )
 
-        mock_manager.get_task.return_value = done_task
-        mock_manager.list_tasks.return_value = [done_task, ready_task]
+        task_map = {"t1": done_task, "t2": ready_task}
+        mock_manager.get_task.side_effect = lambda tid: task_map.get(tid)
+        mock_manager.get_project_tasks.return_value = [done_task, ready_task]
         mock_manager.get_project.return_value = None  # Not all done, no project completion
 
         await scheduler.on_task_completed("t1")
@@ -186,8 +189,9 @@ class TestOnTaskCompleted:
             task_type="human",
         )
 
-        mock_manager.get_task.return_value = done_task
-        mock_manager.list_tasks.return_value = [done_task, human_task]
+        task_map = {"t1": done_task, "t2": human_task}
+        mock_manager.get_task.side_effect = lambda tid: task_map.get(tid)
+        mock_manager.get_project_tasks.return_value = [done_task, human_task]
         mock_manager.get_project.return_value = None
 
         await scheduler.on_task_completed("t1")
@@ -207,8 +211,9 @@ class TestOnTaskCompleted:
             task_type="review",
         )
 
-        mock_manager.get_task.return_value = done_task
-        mock_manager.list_tasks.return_value = [done_task, review_task]
+        task_map = {"t1": done_task, "t2": review_task}
+        mock_manager.get_task.side_effect = lambda tid: task_map.get(tid)
+        mock_manager.get_project_tasks.return_value = [done_task, review_task]
         mock_manager.get_project.return_value = None
 
         await scheduler.on_task_completed("t1")
@@ -224,7 +229,7 @@ class TestOnTaskCompleted:
         ]
 
         mock_manager.get_task.return_value = tasks[0]
-        mock_manager.list_tasks.return_value = tasks
+        mock_manager.get_project_tasks.return_value = tasks
         mock_manager.get_project.return_value = project
 
         await scheduler.on_task_completed("t1")
@@ -241,7 +246,7 @@ class TestOnTaskCompleted:
 
         await scheduler.on_task_completed("t1")
 
-        mock_manager.list_tasks.assert_not_awaited()
+        mock_manager.get_project_tasks.assert_not_awaited()
 
 
 # ============================================================================
