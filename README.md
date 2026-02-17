@@ -371,6 +371,9 @@ cd pocketpaw
 # Install with dev dependencies
 uv sync --dev
 
+# Run the dashboard with auto-reload (watches *.py, *.html, *.js, *.css)
+uv run pocketpaw --dev
+
 # Run tests
 uv run pytest
 

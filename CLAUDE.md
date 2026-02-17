@@ -30,6 +30,9 @@ uv run pocketpaw --whatsapp
 # Run multiple headless channels simultaneously
 uv run pocketpaw --discord --slack
 
+# Run in development mode (auto-reload on file changes)
+uv run pocketpaw --dev
+
 # Run all tests
 uv run pytest
 
