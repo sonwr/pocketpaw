@@ -23,6 +23,7 @@ Changes:
 
 import asyncio
 import base64
+import importlib.util
 import io
 import json
 import logging
@@ -1247,6 +1248,90 @@ def _channel_is_running(channel: str) -> bool:
     return getattr(adapter, "_running", False)
 
 
+# Maps channel name → (import_module, display_package, pip_spec)
+# import_module must be specific enough to avoid false positives from
+# unrelated packages (e.g. "telegram.ext" not just "telegram").
+# signal and whatsapp-business use httpx (core dep), so no extra check needed.
+_CHANNEL_DEPS: dict[str, tuple[str, str, str]] = {
+    "discord": ("discord.ext.commands", "discord.py", "pocketpaw[discord]"),
+    "slack": ("slack_bolt", "slack-bolt", "pocketpaw[slack]"),
+    "whatsapp": ("neonize", "neonize", "pocketpaw[whatsapp-personal]"),
+    "telegram": ("telegram.ext", "python-telegram-bot", "pocketpaw[telegram]"),
+    "matrix": ("nio", "matrix-nio", "pocketpaw[matrix]"),
+    "teams": ("botbuilder.core", "botbuilder-core", "pocketpaw[teams]"),
+    "google_chat": ("googleapiclient.discovery", "google-api-python-client", "pocketpaw[gchat]"),
+}
+
+
+def _is_module_importable(module_name: str) -> bool:
+    """Check if a module can actually be imported (not just found on disk).
+
+    ``find_spec`` only checks whether a module file exists — it doesn't verify
+    that the module loads without errors.  A real import is the only reliable
+    test, especially for packages with native extensions or heavy transitive
+    dependencies like ``python-telegram-bot``.
+    """
+    try:
+        importlib.import_module(module_name)
+        return True
+    except Exception:
+        return False
+
+
+@app.get("/api/extras/check")
+async def check_extras(channel: str = Query(...)):
+    """Check whether a channel's optional dependency is installed."""
+    dep = _CHANNEL_DEPS.get(channel)
+    if dep is None:
+        # Channel has no optional dep (e.g. signal) — always installed
+        return {"installed": True, "extra": channel, "package": "", "pip_spec": ""}
+    import_mod, package, pip_spec = dep
+    installed = _is_module_importable(import_mod)
+    return {
+        "installed": installed,
+        "extra": channel,
+        "package": package,
+        "pip_spec": pip_spec,
+    }
+
+
+@app.post("/api/extras/install")
+async def install_extras(request: Request):
+    """Install a channel's optional dependency."""
+    data = await request.json()
+    extra = data.get("extra", "")
+
+    dep = _CHANNEL_DEPS.get(extra)
+    if dep is None:
+        raise HTTPException(status_code=400, detail=f"Unknown extra: {extra}")
+
+    import_mod, _package, _pip_spec = dep
+
+    # Already installed?
+    if _is_module_importable(import_mod):
+        return {"status": "ok"}
+
+    from pocketpaw.bus.adapters import auto_install
+
+    # Map channel name → pip extra name (most match, except whatsapp → whatsapp-personal)
+    extra_name = "whatsapp-personal" if extra == "whatsapp" else extra
+    try:
+        await asyncio.to_thread(auto_install, extra_name, import_mod)
+    except RuntimeError as exc:
+        return {"error": str(exc)}
+
+    # Clear cached adapter module so _start_channel_adapter can re-import fresh
+    import sys
+
+    adapter_modules = [
+        k for k in sys.modules if k.startswith("pocketpaw.bus.adapters.")
+    ]
+    for mod in adapter_modules:
+        del sys.modules[mod]
+
+    return {"status": "ok"}
+
+
 @app.get("/api/channels/status")
 async def get_channels_status():
     """Get status of all 4 channel adapters."""
@@ -1314,6 +1399,19 @@ async def toggle_channel(request: Request):
         try:
             await _start_channel_adapter(channel, settings)
             logger.info(f"{channel.title()} adapter started via dashboard")
+        except ImportError:
+            # Missing optional dependency — return structured response so the
+            # frontend can show the install modal instead of a generic error.
+            dep = _CHANNEL_DEPS.get(channel)
+            if dep:
+                _mod, package, pip_spec = dep
+                return {
+                    "missing_dep": True,
+                    "channel": channel,
+                    "package": package,
+                    "pip_spec": pip_spec,
+                }
+            return {"error": f"Failed to start {channel}: missing dependency"}
         except Exception as e:
             return {"error": f"Failed to start {channel}: {e}"}
     elif action == "stop":
