@@ -1,14 +1,18 @@
 # Deep Work Session — project lifecycle orchestrator.
 # Created: 2026-02-12
+# Updated: 2026-02-18 — Integrated GoalParser as first step in planning pipeline.
+#   Goal analysis stored in project.metadata["goal_analysis"]. Suggested research
+#   depth from GoalParser used when research_depth="auto".
 # Updated: 2026-02-17 — Record planning errors to health engine ErrorStore.
 # Updated: 2026-02-12 — Added executor integration for pause/stop, made
 #   planner/scheduler/human_router optional with sensible defaults,
 #   improved _assign_tasks_to_agents to use key_to_id mapping.
 #   Added research_depth parameter to start() for controlling planner depth.
 #
-# Ties together the Planner, DependencyScheduler, MCTaskExecutor, and
-# HumanTaskRouter into a single class that manages a Deep Work project
-# from user input through planning, approval, execution, and completion.
+# Ties together GoalParser, Planner, DependencyScheduler, MCTaskExecutor,
+# and HumanTaskRouter into a single class that manages a Deep Work project
+# from user input through goal analysis, planning, approval, execution,
+# and completion.
 #
 # Public API:
 #   session.start(user_input) -> Project   (create + plan + await approval)
@@ -182,22 +186,34 @@ class DeepWorkSession:
         )
 
     async def plan_existing_project(
-        self, project_id: str, user_input: str, research_depth: str = "standard"
+        self,
+        project_id: str,
+        user_input: str,
+        research_depth: str = "standard",
+        goal_analysis: dict | None = None,
     ) -> Project:
         """Run planner on an already-created project.
 
         Called by start() or by the async API endpoint. Broadcasts a
         dw_planning_complete event when done (success or failure).
 
+        If goal_analysis is provided (pre-parsed), it's stored in project
+        metadata and used to inform planning. If research_depth is "auto",
+        the GoalParser's suggested depth is used.
+
         Args:
             project_id: ID of the project to plan.
             user_input: Natural language project description.
-            research_depth: How thorough to research — "none", "quick",
-                "standard", or "deep".
+            research_depth: How thorough to research — "auto" (use goal parser
+                suggestion), "none", "quick", "standard", or "deep".
+            goal_analysis: Optional pre-parsed GoalAnalysis dict. If None and
+                research_depth is "auto", GoalParser runs automatically.
 
         Returns:
             The updated Project.
         """
+        from pocketpaw.deep_work.goal_parser import GoalParser
+
         project = await self.manager.get_project(project_id)
         if not project:
             raise ValueError(f"Project not found: {project_id}")
@@ -206,6 +222,27 @@ class DeepWorkSession:
             # Plan
             project.status = ProjectStatus.PLANNING
             await self.manager.update_project(project)
+
+            # Phase 0: Goal Analysis
+            # Run GoalParser if we don't have a pre-parsed analysis
+            if goal_analysis is None:
+                try:
+                    self._broadcast_phase(project.id, "goal_analysis")
+                    parser = GoalParser()
+                    analysis = await parser.parse(user_input)
+                    goal_analysis = analysis.to_dict()
+                except Exception as e:
+                    logger.warning("Goal parsing failed (non-fatal): %s", e)
+                    goal_analysis = {}
+
+            # Store goal analysis in project metadata
+            if goal_analysis:
+                project.metadata["goal_analysis"] = goal_analysis
+                await self.manager.update_project(project)
+
+            # Use goal parser's suggested depth if research_depth is "auto"
+            if research_depth == "auto" and goal_analysis:
+                research_depth = goal_analysis.get("suggested_research_depth", "standard")
 
             result = await self.planner.plan(
                 user_input, project_id=project.id, research_depth=research_depth
@@ -410,6 +447,43 @@ class DeepWorkSession:
     # =========================================================================
     # Broadcasting helpers
     # =========================================================================
+
+    def _broadcast_phase(self, project_id: str, phase: str) -> None:
+        """Publish a SystemEvent for frontend progress tracking.
+
+        Best-effort — silently ignores errors if bus is unavailable.
+        """
+        phase_messages = {
+            "goal_analysis": "Analyzing your goal...",
+            "research": "Researching domain knowledge...",
+            "prd": "Writing product requirements...",
+            "tasks": "Breaking down into tasks...",
+            "team": "Assembling agent team...",
+        }
+        message = phase_messages.get(phase, f"Planning phase: {phase}")
+
+        try:
+            import asyncio
+
+            from pocketpaw.bus import get_message_bus
+            from pocketpaw.bus.events import SystemEvent
+
+            bus = get_message_bus()
+            loop = asyncio.get_running_loop()
+            loop.create_task(
+                bus.publish_system(
+                    SystemEvent(
+                        event_type="dw_planning_phase",
+                        data={
+                            "project_id": project_id,
+                            "phase": phase,
+                            "message": message,
+                        },
+                    )
+                )
+            )
+        except Exception:
+            pass  # Best effort
 
     def _broadcast_planning_complete(self, project: Project) -> None:
         """Broadcast a planning completion event for the frontend.
