@@ -635,7 +635,7 @@ class ClaudeSDKBackend:
                 "setting_sources": ["user", "project"],
                 "hooks": hooks,
                 "cwd": str(self._cwd),
-                "max_turns": self.settings.claude_sdk_max_turns,
+                "max_turns": self.settings.claude_sdk_max_turns or None,
             }
 
             # Configure LLM provider for the Claude CLI subprocess.

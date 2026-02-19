@@ -150,7 +150,7 @@ class GoogleADKBackend:
         from google.adk.agents import LlmAgent
         from google.adk.runners import InMemoryRunner
 
-        model = self.settings.google_adk_model or "gemini-2.5-flash"
+        model = self.settings.google_adk_model or "gemini-2.5-pro"
 
         agent = LlmAgent(
             name="PocketPaw",
@@ -236,7 +236,7 @@ class GoogleADKBackend:
             )
 
             turn_count = 0
-            max_turns = self.settings.google_adk_max_turns or 25
+            max_turns = self.settings.google_adk_max_turns
             saw_partial = False  # track whether we received streaming chunks
 
             # Enable SSE streaming so the LLM streams token-by-token
@@ -259,7 +259,7 @@ class GoogleADKBackend:
                 if self._stop_flag:
                     break
 
-                if turn_count >= max_turns:
+                if max_turns and turn_count >= max_turns:
                     yield AgentEvent(
                         type="error",
                         content=f"Max turns ({max_turns}) reached — stopping.",
@@ -328,7 +328,7 @@ class GoogleADKBackend:
             "available": self._sdk_available,
             "running": not self._stop_flag,
             "active_sessions": len(self._sessions),
-            "model": self.settings.google_adk_model or "gemini-2.5-flash",
+            "model": self.settings.google_adk_model or "gemini-2.5-pro",
         }
 
 

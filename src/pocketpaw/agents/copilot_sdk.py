@@ -190,7 +190,7 @@ class CopilotSDKBackend:
 
             full_prompt = "\n\n".join(prompt_parts)
 
-            model = self.settings.copilot_sdk_model or "gpt-4o"
+            model = self.settings.copilot_sdk_model or "gpt-5.2"
             provider_config = self._get_provider_config()
 
             # Create or reuse session
@@ -288,7 +288,7 @@ class CopilotSDKBackend:
 
                 if event.type == "tool_result":
                     turn_count += 1
-                    if turn_count >= max_turns:
+                    if max_turns and turn_count >= max_turns:
                         yield AgentEvent(
                             type="error",
                             content=f"Reached max turns ({max_turns})",
@@ -324,7 +324,7 @@ class CopilotSDKBackend:
             "cli_available": self._cli_available,
             "sdk_available": self._sdk_available,
             "running": self._client is not None,
-            "model": self.settings.copilot_sdk_model or "gpt-4o",
+            "model": self.settings.copilot_sdk_model or "gpt-5.2",
             "provider": self.settings.copilot_sdk_provider,
             "active_sessions": len(self._sessions),
         }
