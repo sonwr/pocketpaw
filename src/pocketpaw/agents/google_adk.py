@@ -18,6 +18,7 @@ from typing import Any
 from pocketpaw.agents.backend import BackendInfo, Capability
 from pocketpaw.agents.protocol import AgentEvent
 from pocketpaw.config import Settings
+from pocketpaw.tools.policy import ToolPolicy
 
 logger = logging.getLogger(__name__)
 
@@ -116,8 +117,17 @@ class GoogleADKBackend:
         if not configs:
             return []
 
+        policy = ToolPolicy(
+            profile=self.settings.tool_profile,
+            allow=self.settings.tools_allow,
+            deny=self.settings.tools_deny,
+        )
+
         toolsets: list = []
         for cfg in configs:
+            if not policy.is_mcp_server_allowed(cfg.name):
+                logger.info("MCP server '%s' blocked by tool policy", cfg.name)
+                continue
             try:
                 if cfg.transport == "stdio":
                     toolset = McpToolset(
