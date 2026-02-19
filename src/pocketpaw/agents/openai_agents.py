@@ -51,6 +51,7 @@ class OpenAIAgentsBackend:
                 "pip_spec": "pocketpaw[openai-agents]",
                 "verify_import": "agents",
             },
+            beta=True,
         )
 
     def __init__(self, settings: Settings) -> None:
@@ -123,7 +124,7 @@ class OpenAIAgentsBackend:
 
     def _build_model(self) -> Any:
         """Build the model instance, supporting Ollama via OpenAI-compat."""
-        model_name = self.settings.openai_agents_model or self.settings.openai_model or "gpt-4o"
+        model_name = self.settings.openai_agents_model or self.settings.openai_model or "gpt-5.2"
 
         # Per-backend provider setting, with fallback to global llm_provider
         provider = (
@@ -206,11 +207,12 @@ class OpenAIAgentsBackend:
                 tools=custom_tools if custom_tools else [],
             )
 
-            max_turns = self.settings.openai_agents_max_turns or 25
+            max_turns = self.settings.openai_agents_max_turns
             run_kwargs: dict[str, Any] = {
                 "input": message,
-                "max_turns": max_turns,
             }
+            if max_turns:
+                run_kwargs["max_turns"] = max_turns
             if session is not None:
                 run_kwargs["session"] = session
             result = Runner.run_streamed(agent, **run_kwargs)

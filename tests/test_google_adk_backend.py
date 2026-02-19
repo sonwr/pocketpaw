@@ -392,6 +392,79 @@ class TestGoogleADKMCP:
             result = backend._build_mcp_toolsets()
         assert result == []
 
+    def test_build_mcp_toolsets_policy_blocks_server(self):
+        """MCP servers denied by tool policy should be excluded."""
+        backend = _make_backend()
+        backend.settings.tools_deny = ["mcp:blocked_server:*"]
+
+        mock_cfg_blocked = MagicMock()
+        mock_cfg_blocked.name = "blocked_server"
+        mock_cfg_blocked.transport = "stdio"
+        mock_cfg_blocked.command = "echo"
+        mock_cfg_blocked.args = []
+        mock_cfg_blocked.env = {}
+
+        mock_cfg_allowed = MagicMock()
+        mock_cfg_allowed.name = "allowed_server"
+        mock_cfg_allowed.transport = "stdio"
+        mock_cfg_allowed.command = "echo"
+        mock_cfg_allowed.args = []
+        mock_cfg_allowed.env = {}
+
+        mock_toolset_cls = MagicMock()
+        mock_mcp_tool = MagicMock()
+        mock_mcp_tool.McpToolset = mock_toolset_cls
+        mock_session_mgr = MagicMock()
+        mock_mcp = MagicMock()
+
+        with patch.dict(
+            sys.modules,
+            {
+                "google.adk.tools.mcp_tool": mock_mcp_tool,
+                "google.adk.tools.mcp_tool.mcp_session_manager": mock_session_mgr,
+                "mcp": mock_mcp,
+            },
+        ), patch(
+            "pocketpaw.mcp.config.load_mcp_config",
+            return_value=[mock_cfg_blocked, mock_cfg_allowed],
+        ):
+            result = backend._build_mcp_toolsets()
+
+        # Only the allowed server should produce a toolset
+        assert len(result) == 1
+        assert mock_toolset_cls.call_count == 1
+
+    def test_build_mcp_toolsets_policy_blocks_group_mcp(self):
+        """Denying group:mcp should block all MCP servers."""
+        backend = _make_backend()
+        backend.settings.tools_deny = ["group:mcp"]
+
+        mock_cfg = MagicMock()
+        mock_cfg.name = "any_server"
+        mock_cfg.transport = "stdio"
+        mock_cfg.command = "echo"
+        mock_cfg.args = []
+        mock_cfg.env = {}
+
+        mock_mcp_tool = MagicMock()
+        mock_session_mgr = MagicMock()
+        mock_mcp = MagicMock()
+
+        with patch.dict(
+            sys.modules,
+            {
+                "google.adk.tools.mcp_tool": mock_mcp_tool,
+                "google.adk.tools.mcp_tool.mcp_session_manager": mock_session_mgr,
+                "mcp": mock_mcp,
+            },
+        ), patch(
+            "pocketpaw.mcp.config.load_mcp_config",
+            return_value=[mock_cfg],
+        ):
+            result = backend._build_mcp_toolsets()
+
+        assert result == []
+
 
 class TestGoogleADKStatus:
     @pytest.mark.asyncio
