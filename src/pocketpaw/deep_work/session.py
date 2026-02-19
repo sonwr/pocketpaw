@@ -20,6 +20,7 @@
 #   session.pause(project_id) -> Project   (stop running tasks)
 #   session.resume(project_id) -> Project  (resume dispatching)
 
+import asyncio
 import logging
 from typing import Any
 
@@ -66,6 +67,7 @@ class DeepWorkSession:
         self.human_router = human_router or HumanTaskRouter()
         self.scheduler = scheduler or DependencyScheduler(manager, executor, self.human_router)
         self._subscribed = False
+        self._planning_locks: dict[str, asyncio.Lock] = {}  # per-project planning locks
 
         # Wire direct executor → scheduler callback for reliable cascade dispatch.
         # This bypasses MessageBus so task completion always triggers dependent
@@ -106,8 +108,6 @@ class DeepWorkSession:
         Returns:
             Number of projects recovered.
         """
-        import asyncio
-
         recovered = 0
         projects = await self.manager.list_projects()
 
@@ -212,6 +212,24 @@ class DeepWorkSession:
         Returns:
             The updated Project.
         """
+        # Per-project lock prevents concurrent planning for the same project
+        if project_id not in self._planning_locks:
+            self._planning_locks[project_id] = asyncio.Lock()
+        lock = self._planning_locks[project_id]
+
+        async with lock:
+            return await self._plan_existing_project_locked(
+                project_id, user_input, research_depth, goal_analysis
+            )
+
+    async def _plan_existing_project_locked(
+        self,
+        project_id: str,
+        user_input: str,
+        research_depth: str = "standard",
+        goal_analysis: dict | None = None,
+    ) -> Project:
+        """Internal planning method, called under per-project lock."""
         from pocketpaw.deep_work.goal_parser import GoalParser
 
         project = await self.manager.get_project(project_id)
@@ -352,8 +370,6 @@ class DeepWorkSession:
         Raises:
             ValueError: If project not found.
         """
-        import asyncio
-
         project = await self.manager.get_project(project_id)
         if not project:
             raise ValueError(f"Project not found: {project_id}")
@@ -413,8 +429,6 @@ class DeepWorkSession:
         Raises:
             ValueError: If project not found.
         """
-        import asyncio
-
         project = await self.manager.get_project(project_id)
         if not project:
             raise ValueError(f"Project not found: {project_id}")

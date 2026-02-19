@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from pocketpaw.agents.protocol import AgentEvent
 from pocketpaw.deep_work.goal_parser import (
     VALID_COMPLEXITIES,
     VALID_DOMAINS,
@@ -20,6 +21,7 @@ from pocketpaw.deep_work.goal_parser import (
     GoalAnalysis,
     GoalParser,
     _clamp,
+    _sanitize_str_list,
     _validate_complexity,
     _validate_domain,
     _validate_research_depth,
@@ -491,7 +493,7 @@ class TestRunPromptErrors:
         mock_router = MagicMock()
 
         async def mock_run(prompt):
-            yield {"type": "error", "content": "API key not configured"}
+            yield AgentEvent(type="error", content="API key not configured")
 
         mock_router.run = mock_run
 
@@ -507,8 +509,8 @@ class TestRunPromptErrors:
         mock_router = MagicMock()
 
         async def mock_run(prompt):
-            yield {"type": "message", "content": '{"domain": "code"}'}
-            yield {"type": "done", "content": ""}
+            yield AgentEvent(type="message", content='{"domain": "code"}')
+            yield AgentEvent(type="done", content="")
 
         mock_router.run = mock_run
 
@@ -537,3 +539,172 @@ class TestGoalParsePrompt:
         result = GOAL_PARSE_PROMPT.format(user_input="Build a todo app")
         assert "Build a todo app" in result
         assert "{user_input}" not in result
+
+    def test_allows_markdown_fences(self):
+        from pocketpaw.deep_work.prompts import GOAL_PARSE_PROMPT
+
+        # Prompt should mention that fences are allowed (not prohibited)
+        assert "```json" in GOAL_PARSE_PROMPT
+
+
+# ============================================================================
+# _sanitize_str_list tests
+# ============================================================================
+
+
+class TestSanitizeStrList:
+    """Test _sanitize_str_list helper."""
+
+    def test_valid_strings(self):
+        assert _sanitize_str_list(["a", "b", "c"]) == ["a", "b", "c"]
+
+    def test_filters_none(self):
+        assert _sanitize_str_list(["valid", None, "also valid"]) == ["valid", "also valid"]
+
+    def test_converts_numbers_to_str(self):
+        result = _sanitize_str_list(["text", 123, 45.6])
+        assert result == ["text", "123", "45.6"]
+
+    def test_filters_empty_strings(self):
+        assert _sanitize_str_list(["valid", "", "  ", "ok"]) == ["valid", "ok"]
+
+    def test_not_a_list_returns_empty(self):
+        assert _sanitize_str_list("not a list") == []
+        assert _sanitize_str_list(42) == []
+        assert _sanitize_str_list(None) == []
+
+    def test_empty_list(self):
+        assert _sanitize_str_list([]) == []
+
+
+# ============================================================================
+# GoalAnalysis.from_dict — sanitization and caps tests
+# ============================================================================
+
+
+class TestGoalAnalysisFromDictSanitization:
+    """Test from_dict sanitization of list fields and complexity/phase consistency."""
+
+    def test_sub_domains_capped_at_6(self):
+        data = {"sub_domains": ["a", "b", "c", "d", "e", "f", "g", "h"]}
+        analysis = GoalAnalysis.from_dict(data)
+        assert len(analysis.sub_domains) == 6
+
+    def test_ai_capabilities_with_nulls(self):
+        data = {"ai_capabilities": ["Write code", None, 123, "", "Test code"]}
+        analysis = GoalAnalysis.from_dict(data)
+        assert analysis.ai_capabilities == ["Write code", "123", "Test code"]
+
+    def test_human_requirements_with_nulls(self):
+        data = {"human_requirements": ["Decide schema", None, "Approve design"]}
+        analysis = GoalAnalysis.from_dict(data)
+        assert analysis.human_requirements == ["Decide schema", "Approve design"]
+
+    def test_constraints_detected_not_a_list(self):
+        data = {"constraints_detected": "not a list"}
+        analysis = GoalAnalysis.from_dict(data)
+        assert analysis.constraints_detected == []
+
+    def test_xl_complexity_minimum_3_phases(self):
+        data = {"complexity": "XL", "estimated_phases": 1}
+        analysis = GoalAnalysis.from_dict(data)
+        assert analysis.estimated_phases == 3
+
+    def test_l_complexity_minimum_2_phases(self):
+        data = {"complexity": "L", "estimated_phases": 1}
+        analysis = GoalAnalysis.from_dict(data)
+        assert analysis.estimated_phases == 2
+
+    def test_s_complexity_allows_1_phase(self):
+        data = {"complexity": "S", "estimated_phases": 1}
+        analysis = GoalAnalysis.from_dict(data)
+        assert analysis.estimated_phases == 1
+
+    def test_m_complexity_allows_1_phase(self):
+        data = {"complexity": "M", "estimated_phases": 1}
+        analysis = GoalAnalysis.from_dict(data)
+        assert analysis.estimated_phases == 1
+
+
+# ============================================================================
+# _run_prompt — empty response test
+# ============================================================================
+
+
+class TestRunPromptEmptyResponse:
+    """Test _run_prompt raises on empty LLM response."""
+
+    @pytest.mark.asyncio
+    async def test_raises_on_empty_response(self):
+        parser = GoalParser()
+
+        mock_router = MagicMock()
+
+        async def mock_run(prompt):
+            yield AgentEvent(type="done", content="")
+
+        mock_router.run = mock_run
+
+        with patch("pocketpaw.agents.router.AgentRouter", return_value=mock_router):
+            with patch("pocketpaw.config.get_settings"):
+                with pytest.raises(RuntimeError, match="empty response"):
+                    await parser._run_prompt("test prompt")
+
+    @pytest.mark.asyncio
+    async def test_raises_on_only_empty_messages(self):
+        parser = GoalParser()
+
+        mock_router = MagicMock()
+
+        async def mock_run(prompt):
+            yield AgentEvent(type="message", content="")
+            yield AgentEvent(type="message", content="")
+
+        mock_router.run = mock_run
+
+        with patch("pocketpaw.agents.router.AgentRouter", return_value=mock_router):
+            with patch("pocketpaw.config.get_settings"):
+                with pytest.raises(RuntimeError, match="empty response"):
+                    await parser._run_prompt("test prompt")
+
+
+# ============================================================================
+# Prompt injection safety tests
+# ============================================================================
+
+
+class TestPromptInjection:
+    """Test that curly braces in user input don't break prompt formatting."""
+
+    @pytest.mark.asyncio
+    async def test_curly_braces_in_input(self):
+        parser = GoalParser()
+        captured_prompt = None
+
+        async def mock_run_prompt(prompt: str) -> str:
+            nonlocal captured_prompt
+            captured_prompt = prompt
+            return VALID_GOAL_JSON
+
+        parser._run_prompt = mock_run_prompt
+
+        # Input with curly braces should not crash
+        await parser.parse("Build a {React} app with {TypeScript}")
+        assert captured_prompt is not None
+        assert "{React}" in captured_prompt  # braces preserved in final prompt
+
+    @pytest.mark.asyncio
+    async def test_format_string_attack(self):
+        parser = GoalParser()
+        captured_prompt = None
+
+        async def mock_run_prompt(prompt: str) -> str:
+            nonlocal captured_prompt
+            captured_prompt = prompt
+            return VALID_GOAL_JSON
+
+        parser._run_prompt = mock_run_prompt
+
+        # Malicious format string should not cause KeyError
+        await parser.parse("Build {__class__.__mro__[1]}")
+        assert captured_prompt is not None

@@ -16,7 +16,7 @@
     x-show="missionControl.showStartProject"
     x-transition.opacity
     class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
-    @click.self="missionControl.showStartProject = false; resetGoalAnalysis()"
+    @click.self="missionControl.showStartProject = false; resetGoalAnalysis(true)"
 >
     <div
         class="w-full max-w-lg bg-[#1c1c1e] border border-white/10 rounded-2xl shadow-2xl"
@@ -38,7 +38,7 @@
             </div>
             <button
                 class="p-2 text-white/50 hover:text-white hover:bg-white/10 rounded-lg"
-                @click="missionControl.showStartProject = false; resetGoalAnalysis()"
+                @click="missionControl.showStartProject = false; resetGoalAnalysis(true)"
                 :disabled="missionControl.projectStarting"
             >
                 <i data-lucide="x" class="w-4 h-4"></i>
@@ -230,6 +230,17 @@
                             class="text-white/40 hover:text-white/60 underline"
                             @click="resetGoalAnalysis()"
                         >Edit description</button>
+                    </div>
+
+                    <!-- Low confidence warning -->
+                    <div
+                        x-show="(missionControl.goalAnalysis.confidence || 0) < 0.7"
+                        class="bg-amber-500/5 border border-amber-500/20 rounded-xl p-3"
+                    >
+                        <div class="flex items-center gap-2 text-[11px] text-amber-300/70">
+                            <i data-lucide="alert-triangle" class="w-3.5 h-3.5 shrink-0"></i>
+                            <span>Low confidence in analysis. Consider adding more detail to your description.</span>
+                        </div>
                     </div>
 
                     <!-- Planning progress (shown while planner works) -->

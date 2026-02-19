@@ -23,8 +23,8 @@ it is, and WHAT needs clarification.
 USER INPUT:
 {user_input}
 
-Analyze the input and output ONLY a valid JSON object (no markdown fences, \
-no commentary). The JSON must have exactly these fields:
+Analyze the input and output ONLY a valid JSON object (no commentary). \
+You may wrap it in ```json fences. The JSON must have exactly these fields:
 
 {{
   "goal": "A clear, one-sentence restatement of the user's goal",

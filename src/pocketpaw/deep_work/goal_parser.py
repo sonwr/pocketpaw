@@ -83,16 +83,26 @@ class GoalAnalysis:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "GoalAnalysis":
         """Create from dictionary."""
+        raw_clarifications = data.get("clarifications_needed", [])
+        if len(raw_clarifications) > 4:
+            logger.warning("Clarifications truncated from %d to 4", len(raw_clarifications))
+
+        complexity = _validate_complexity(data.get("complexity", "M"))
+        estimated_phases = int(_clamp(data.get("estimated_phases", 1), 1, 10))
+        # Enforce minimum phases for high complexity
+        min_phases = {"S": 1, "M": 1, "L": 2, "XL": 3}
+        estimated_phases = max(estimated_phases, min_phases.get(complexity, 1))
+
         return cls(
             goal=data.get("goal", ""),
             domain=_validate_domain(data.get("domain", "code")),
-            sub_domains=data.get("sub_domains", []),
-            complexity=_validate_complexity(data.get("complexity", "M")),
-            estimated_phases=int(_clamp(data.get("estimated_phases", 1), 1, 10)),
-            ai_capabilities=data.get("ai_capabilities", []),
-            human_requirements=data.get("human_requirements", []),
-            constraints_detected=data.get("constraints_detected", []),
-            clarifications_needed=data.get("clarifications_needed", [])[:4],
+            sub_domains=_sanitize_str_list(data.get("sub_domains", []))[:6],
+            complexity=complexity,
+            estimated_phases=estimated_phases,
+            ai_capabilities=_sanitize_str_list(data.get("ai_capabilities", [])),
+            human_requirements=_sanitize_str_list(data.get("human_requirements", [])),
+            constraints_detected=_sanitize_str_list(data.get("constraints_detected", [])),
+            clarifications_needed=_sanitize_str_list(raw_clarifications)[:4],
             suggested_research_depth=_validate_research_depth(
                 data.get("suggested_research_depth", "standard")
             ),
@@ -140,7 +150,9 @@ class GoalParser:
         """
         from pocketpaw.deep_work.prompts import GOAL_PARSE_PROMPT
 
-        prompt = GOAL_PARSE_PROMPT.format(user_input=user_input)
+        # Escape curly braces in user input to prevent format string injection
+        safe_input = user_input.replace("{", "{{").replace("}", "}}")
+        prompt = GOAL_PARSE_PROMPT.format(user_input=safe_input)
         raw_output = await self._run_prompt(prompt)
 
         analysis = self.parse_raw(raw_output)
@@ -149,7 +161,8 @@ class GoalParser:
             analysis.goal = user_input[:200]
 
         logger.info(
-            "Goal parsed: domain=%s complexity=%s confidence=%.2f clarifications=%d",
+            "Goal parsed for '%.50s': domain=%s complexity=%s confidence=%.2f clarifications=%d",
+            user_input,
             analysis.domain,
             analysis.complexity,
             analysis.confidence,
@@ -192,19 +205,20 @@ class GoalParser:
         output_parts: list[str] = []
         errors: list[str] = []
 
-        async for chunk in router.run(prompt):
-            chunk_type = chunk.get("type")
-            if chunk_type == "message":
-                content = chunk.get("content", "")
+        async for event in router.run(prompt):
+            if event.type == "message":
+                content = event.content or ""
                 if content:
                     output_parts.append(content)
-            elif chunk_type == "error":
-                error_content = chunk.get("content", "Unknown error")
+            elif event.type == "error":
+                error_content = event.content or "Unknown error"
                 errors.append(error_content)
                 logger.error("LLM error during goal parsing: %s", error_content)
 
-        if not output_parts and errors:
-            raise RuntimeError(f"LLM error during goal parsing: {errors[0]}")
+        if not output_parts:
+            if errors:
+                raise RuntimeError(f"LLM error during goal parsing: {errors[0]}")
+            raise RuntimeError("LLM produced empty response during goal parsing")
 
         return "".join(output_parts)
 
@@ -244,6 +258,13 @@ def _validate_research_depth(value: str) -> str:
     if normalized in VALID_RESEARCH_DEPTHS:
         return normalized
     return "standard"
+
+
+def _sanitize_str_list(items: Any) -> list[str]:
+    """Filter a list to only non-empty string items."""
+    if not isinstance(items, list):
+        return []
+    return [str(item) for item in items if item is not None and str(item).strip()]
 
 
 def _clamp(value, minimum, maximum):

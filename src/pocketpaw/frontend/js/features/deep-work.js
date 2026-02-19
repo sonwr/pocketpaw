@@ -108,9 +108,14 @@ window.PocketPaw.DeepWork = {
             },
 
             /**
-             * Reset goal analysis and go back to input step
+             * Reset goal analysis and go back to input step.
+             * If soft=true (modal close), cache the analysis so reopening restores it.
              */
-            resetGoalAnalysis() {
+            resetGoalAnalysis(soft = false) {
+                if (soft && this.missionControl.goalAnalysis) {
+                    // Cache: keep analysis so reopening the modal restores the review step
+                    return;
+                }
                 this.missionControl.goalAnalysis = null;
                 this.missionControl.goalAnalysisStep = 'input';
                 this.missionControl.researchDepth = 'auto';
