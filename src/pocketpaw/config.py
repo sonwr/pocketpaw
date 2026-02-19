@@ -129,7 +129,7 @@ class Settings(BaseSettings):
 
     # Gemini CLI Settings (legacy, kept for config compat)
     gemini_cli_model: str = Field(
-        default="gemini-2.5-pro", description="Model for Gemini CLI backend (legacy)"
+        default="gemini-3-pro-preview", description="Model for Gemini CLI backend (legacy)"
     )
     gemini_cli_max_turns: int = Field(
         default=0, description="Max turns per query in Gemini CLI backend (legacy, 0 = unlimited)"
@@ -137,7 +137,7 @@ class Settings(BaseSettings):
 
     # Google ADK Settings
     google_adk_model: str = Field(
-        default="gemini-2.5-pro", description="Model for Google ADK backend"
+        default="gemini-3-pro-preview", description="Model for Google ADK backend"
     )
     google_adk_max_turns: int = Field(
         default=0, description="Max turns per query in Google ADK backend (0 = unlimited)"
@@ -199,7 +199,7 @@ class Settings(BaseSettings):
         default=0,
         description="Max output tokens for OpenAI-compatible endpoint (0 = no limit)",
     )
-    gemini_model: str = Field(default="gemini-2.5-pro", description="Gemini model to use")
+    gemini_model: str = Field(default="gemini-3-pro-preview", description="Gemini model to use")
     openai_api_key: str | None = Field(default=None, description="OpenAI API key")
     openai_model: str = Field(default="gpt-5.2", description="OpenAI model to use")
     anthropic_api_key: str | None = Field(default=None, description="Anthropic API key")

@@ -150,7 +150,7 @@ class GoogleADKBackend:
         from google.adk.agents import LlmAgent
         from google.adk.runners import InMemoryRunner
 
-        model = self.settings.google_adk_model or "gemini-2.5-pro"
+        model = self.settings.google_adk_model or "gemini-3-pro-preview"
 
         agent = LlmAgent(
             name="PocketPaw",
@@ -328,7 +328,7 @@ class GoogleADKBackend:
             "available": self._sdk_available,
             "running": not self._stop_flag,
             "active_sessions": len(self._sessions),
-            "model": self.settings.google_adk_model or "gemini-2.5-pro",
+            "model": self.settings.google_adk_model or "gemini-3-pro-preview",
         }
 
 

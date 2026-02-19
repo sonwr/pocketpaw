@@ -194,7 +194,7 @@ class PocketPawSocket {
             openai_agents_provider: settings.openaiAgentsProvider || 'openai',
             openai_agents_model: settings.openaiAgentsModel || '',
             openai_agents_max_turns: parseInt(settings.openaiAgentsMaxTurns) || 0,
-            google_adk_model: settings.googleAdkModel || 'gemini-2.5-pro',
+            google_adk_model: settings.googleAdkModel || 'gemini-3-pro-preview',
             google_adk_max_turns: parseInt(settings.googleAdkMaxTurns) || 0,
             codex_cli_model: settings.codexCliModel || 'gpt-5.3-codex',
             codex_cli_max_turns: parseInt(settings.codexCliMaxTurns) || 0,
