@@ -37,15 +37,52 @@
 
 ## Quick Start
 
-### 🐧 Linux / macOS
-```sh
+### Desktop App (recommended)
+
+Download the native app — includes auto-updates, system tray, and launches on startup.
+
+| Platform | Download |
+| --- | --- |
+| **macOS** (Apple Silicon) | [PocketPaw-macOS-arm64.dmg](https://github.com/pocketpaw/pocketpaw/releases/latest/download/PocketPaw-macOS-arm64.dmg) |
+| **Windows** | [PocketPaw-Setup.exe](https://github.com/pocketpaw/pocketpaw/releases/latest/download/PocketPaw-Setup.exe) |
+
+### Install via Terminal
+
+<details open>
+<summary>macOS / Linux</summary>
+
+```bash
 pip install pocketpaw && pocketpaw
 ```
 
-**That's it.** The web dashboard opens automatically at `http://localhost:8888`. Connect Discord, Slack, WhatsApp, or Telegram and control your agent from anywhere.
+Or use the install script:
 
-> **Note for Windows users:** Some features (browser automation, shell tools) work best
-> under WSL2. Native Windows support covers the web dashboard and all LLM chat features.
+```bash
+curl -fsSL https://pocketpaw.xyz/install.sh | sh
+```
+
+</details>
+
+<details>
+<summary>Windows (PowerShell)</summary>
+
+```powershell
+powershell -NoExit -Command "iwr -useb https://pocketpaw.xyz/install.ps1 | iex"
+```
+
+Or install manually with pip:
+
+```powershell
+pip install pocketpaw
+pocketpaw
+```
+
+> **Note:** Some features (browser automation, shell tools) work best under WSL2. Native Windows support covers the web dashboard and all LLM chat features.
+
+</details>
+
+<details>
+<summary>Other methods</summary>
 
 ```bash
 pipx install pocketpaw && pocketpaw    # Isolated install
@@ -56,8 +93,7 @@ git clone https://github.com/pocketpaw/pocketpaw.git
 cd pocketpaw && uv run pocketpaw
 ```
 
-> ⚠️ **Note:** The `curl -fsSL https://pocketpaw.xyz/install.sh | sh` one-liner is
-> temporarily unavailable. Use the pip install above — it's equally fast.
+</details>
 
 <details>
 <summary>Docker</summary>
@@ -77,6 +113,8 @@ docker exec pocketpaw cat /home/pocketpaw/.pocketpaw/access_token
 Optional profiles: `--profile ollama` (local LLMs), `--profile qdrant` (vector memory).
 
 </details>
+
+**That's it.** The web dashboard opens automatically at `http://localhost:8888`. Connect Discord, Slack, WhatsApp, or Telegram and control your agent from anywhere.
 
 ---
 
