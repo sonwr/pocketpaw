@@ -1408,6 +1408,7 @@ async def list_available_backends():
                     "requiredKeys": info.required_keys,
                     "supportedProviders": info.supported_providers,
                     "installHint": info.install_hint,
+                    "beta": info.beta,
                 }
             )
         else:
@@ -1421,6 +1422,7 @@ async def list_available_backends():
                     "requiredKeys": [],
                     "supportedProviders": [],
                     "installHint": {},
+                    "beta": False,
                 }
             )
     return results
@@ -2334,6 +2336,13 @@ async def websocket_endpoint(
                 # But allow fallback to old router if 'agent_active' is toggled specifically for old behavior?
                 # Actually, let's treat 'chat' as input to the Bus.
                 await ws_adapter.handle_message(chat_id, data)
+
+            # Stop in-flight response
+            elif action == "stop":
+                session_key = f"websocket:{chat_id}"
+                cancelled = await agent_loop.cancel_session(session_key)
+                if not cancelled:
+                    await websocket.send_json({"type": "stream_end"})
 
             # Session switching
             elif action == "switch_session":

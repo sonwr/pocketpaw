@@ -134,7 +134,7 @@
                 class="w-full appearance-none bg-black/30 border border-[var(--glass-border)] rounded-[10px] py-2.5 px-3 text-[13px] text-white focus:outline-none focus:border-[var(--accent-color)] focus:bg-black/40 transition-all"
               >
                 <template x-for="b in _backendsData" :key="b.name">
-                  <option :value="b.name" x-text="b.displayName + (b.name === 'claude_agent_sdk' ? ' (Recommended)' : '') + (!b.available ? ' — not installed' : '')"></option>
+                  <option :value="b.name" x-text="b.displayName + (b.name === 'claude_agent_sdk' ? ' (Recommended)' : '') + (b.beta ? ' [Beta]' : '') + (!b.available ? ' — not installed' : '')"></option>
                 </template>
                 <!-- Fallback if fetch hasn't resolved -->
                 <template x-if="_backendsData.length === 0">
@@ -389,7 +389,7 @@
               <div class="flex flex-col gap-1">
                 <label class="text-[12px] font-medium text-[var(--text-secondary)]">Model</label>
                 <input type="text" x-model="settings.openaiCompatibleModel" @change="saveSettings()"
-                  placeholder="claude-sonnet-4-5-20250929"
+                  placeholder="claude-sonnet-4-6"
                   class="w-full bg-black/30 border border-[var(--glass-border)] rounded-[10px] py-2 px-3 text-[13px] text-white focus:outline-none focus:border-[var(--accent-color)] focus:bg-black/40 transition-all placeholder-white/40"
                 />
               </div>
@@ -497,7 +497,7 @@
               <div class="flex flex-col gap-1">
                 <label class="text-[12px] font-medium text-[var(--text-secondary)]">Model</label>
                 <input type="text" x-model="settings.openaiCompatibleModel" @change="saveSettings()"
-                  placeholder="gpt-4o"
+                  placeholder="gpt-5.2"
                   class="w-full bg-black/30 border border-[var(--glass-border)] rounded-[10px] py-2 px-3 text-[13px] text-white focus:outline-none focus:border-[var(--accent-color)] focus:bg-black/40 transition-all placeholder-white/40"
                 />
               </div>
@@ -509,7 +509,7 @@
                 type="text"
                 x-model="settings.openaiAgentsModel"
                 @change="saveSettings()"
-                placeholder="gpt-4o"
+                placeholder="gpt-5.2"
                 class="w-full bg-black/30 border border-[var(--glass-border)] rounded-[10px] py-2 px-3 text-[13px] text-white focus:outline-none focus:border-[var(--accent-color)] focus:bg-black/40 transition-all placeholder-white/40"
               />
             </div>
@@ -540,7 +540,7 @@
                 type="text"
                 x-model="settings.googleAdkModel"
                 @change="saveSettings()"
-                placeholder="gemini-2.5-flash"
+                placeholder="gemini-3-pro-preview"
                 class="w-full bg-black/30 border border-[var(--glass-border)] rounded-[10px] py-2 px-3 text-[13px] text-white focus:outline-none focus:border-[var(--accent-color)] focus:bg-black/40 transition-all placeholder-white/40"
               />
             </div>
@@ -571,7 +571,7 @@
                 type="text"
                 x-model="settings.codexCliModel"
                 @change="saveSettings()"
-                placeholder="o4-mini"
+                placeholder="gpt-5.3-codex"
                 class="w-full bg-black/30 border border-[var(--glass-border)] rounded-[10px] py-2 px-3 text-[13px] text-white focus:outline-none focus:border-[var(--accent-color)] focus:bg-black/40 transition-all placeholder-white/40"
               />
             </div>
@@ -615,7 +615,7 @@
                 type="text"
                 x-model="settings.copilotSdkModel"
                 @change="saveSettings()"
-                placeholder="gpt-4o"
+                placeholder="gpt-5.2"
                 class="w-full bg-black/30 border border-[var(--glass-border)] rounded-[10px] py-2 px-3 text-[13px] text-white focus:outline-none focus:border-[var(--accent-color)] focus:bg-black/40 transition-all placeholder-white/40"
               />
             </div>
@@ -656,7 +656,7 @@
                 type="text"
                 x-model="settings.opencodeModel"
                 @change="saveSettings()"
-                placeholder="anthropic/claude-sonnet-4-5-20250929"
+                placeholder="anthropic/claude-sonnet-4-6"
                 class="w-full bg-black/30 border border-[var(--glass-border)] rounded-[10px] py-2 px-3 text-[13px] text-white focus:outline-none focus:border-[var(--accent-color)] focus:bg-black/40 transition-all placeholder-white/40"
               />
             </div>

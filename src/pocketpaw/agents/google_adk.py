@@ -18,6 +18,7 @@ from typing import Any
 from pocketpaw.agents.backend import BackendInfo, Capability
 from pocketpaw.agents.protocol import AgentEvent
 from pocketpaw.config import Settings
+from pocketpaw.tools.policy import ToolPolicy
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,7 @@ class GoogleADKBackend:
                 "pip_spec": "pocketpaw[google-adk]",
                 "verify_import": "google.adk",
             },
+            beta=True,
         )
 
     def __init__(self, settings: Settings) -> None:
@@ -115,8 +117,17 @@ class GoogleADKBackend:
         if not configs:
             return []
 
+        policy = ToolPolicy(
+            profile=self.settings.tool_profile,
+            allow=self.settings.tools_allow,
+            deny=self.settings.tools_deny,
+        )
+
         toolsets: list = []
         for cfg in configs:
+            if not policy.is_mcp_server_allowed(cfg.name):
+                logger.info("MCP server '%s' blocked by tool policy", cfg.name)
+                continue
             try:
                 if cfg.transport == "stdio":
                     toolset = McpToolset(
@@ -149,7 +160,7 @@ class GoogleADKBackend:
         from google.adk.agents import LlmAgent
         from google.adk.runners import InMemoryRunner
 
-        model = self.settings.google_adk_model or "gemini-2.5-flash"
+        model = self.settings.google_adk_model or "gemini-3-pro-preview"
 
         agent = LlmAgent(
             name="PocketPaw",
@@ -235,7 +246,7 @@ class GoogleADKBackend:
             )
 
             turn_count = 0
-            max_turns = self.settings.google_adk_max_turns or 25
+            max_turns = self.settings.google_adk_max_turns
             saw_partial = False  # track whether we received streaming chunks
 
             # Enable SSE streaming so the LLM streams token-by-token
@@ -258,7 +269,7 @@ class GoogleADKBackend:
                 if self._stop_flag:
                     break
 
-                if turn_count >= max_turns:
+                if max_turns and turn_count >= max_turns:
                     yield AgentEvent(
                         type="error",
                         content=f"Max turns ({max_turns}) reached — stopping.",
@@ -327,7 +338,7 @@ class GoogleADKBackend:
             "available": self._sdk_available,
             "running": not self._stop_flag,
             "active_sessions": len(self._sessions),
-            "model": self.settings.google_adk_model or "gemini-2.5-flash",
+            "model": self.settings.google_adk_model or "gemini-3-pro-preview",
         }
 
 

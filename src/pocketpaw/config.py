@@ -111,8 +111,8 @@ class Settings(BaseSettings):
         description="Model for Claude SDK backend (empty = let Claude Code auto-select)",
     )
     claude_sdk_max_turns: int = Field(
-        default=25,
-        description="Max tool-use turns per query in Claude SDK (safety net against runaway loops)",
+        default=0,
+        description="Max tool-use turns per query in Claude SDK (0 = unlimited)",
     )
 
     # OpenAI Agents SDK Settings
@@ -121,34 +121,34 @@ class Settings(BaseSettings):
         description="Provider for OpenAI Agents: 'openai', 'ollama', or 'openai_compatible'",
     )
     openai_agents_model: str = Field(
-        default="", description="Model for OpenAI Agents backend (empty = gpt-4o)"
+        default="", description="Model for OpenAI Agents backend (empty = gpt-5.2)"
     )
     openai_agents_max_turns: int = Field(
-        default=25, description="Max turns per query in OpenAI Agents backend"
+        default=0, description="Max turns per query in OpenAI Agents backend (0 = unlimited)"
     )
 
     # Gemini CLI Settings (legacy, kept for config compat)
     gemini_cli_model: str = Field(
-        default="gemini-2.5-flash", description="Model for Gemini CLI backend (legacy)"
+        default="gemini-3-pro-preview", description="Model for Gemini CLI backend (legacy)"
     )
     gemini_cli_max_turns: int = Field(
-        default=25, description="Max turns per query in Gemini CLI backend (legacy)"
+        default=0, description="Max turns per query in Gemini CLI backend (legacy, 0 = unlimited)"
     )
 
     # Google ADK Settings
     google_adk_model: str = Field(
-        default="gemini-2.5-flash", description="Model for Google ADK backend"
+        default="gemini-3-pro-preview", description="Model for Google ADK backend"
     )
     google_adk_max_turns: int = Field(
-        default=25, description="Max turns per query in Google ADK backend"
+        default=0, description="Max turns per query in Google ADK backend (0 = unlimited)"
     )
 
     # Codex CLI Settings
     codex_cli_model: str = Field(
-        default="o4-mini", description="Model for Codex CLI backend"
+        default="gpt-5.3-codex", description="Model for Codex CLI backend"
     )
     codex_cli_max_turns: int = Field(
-        default=25, description="Max turns per query in Codex CLI backend"
+        default=0, description="Max turns per query in Codex CLI backend (0 = unlimited)"
     )
 
     # Copilot SDK Settings
@@ -157,10 +157,10 @@ class Settings(BaseSettings):
         description="Provider for Copilot SDK: 'copilot', 'openai', 'azure', or 'anthropic'",
     )
     copilot_sdk_model: str = Field(
-        default="", description="Model for Copilot SDK backend (empty = gpt-4o)"
+        default="", description="Model for Copilot SDK backend (empty = gpt-5.2)"
     )
     copilot_sdk_max_turns: int = Field(
-        default=25, description="Max turns per query in Copilot SDK backend"
+        default=0, description="Max turns per query in Copilot SDK backend (0 = unlimited)"
     )
 
     # OpenCode Settings
@@ -170,10 +170,10 @@ class Settings(BaseSettings):
     )
     opencode_model: str = Field(
         default="",
-        description="Model for OpenCode (provider/model format, e.g. anthropic/claude-sonnet-4-5-20250929)",
+        description="Model for OpenCode (provider/model format, e.g. anthropic/claude-sonnet-4-6)",
     )
     opencode_max_turns: int = Field(
-        default=25, description="Max turns per query in OpenCode backend"
+        default=0, description="Max turns per query in OpenCode backend (0 = unlimited)"
     )
 
     # LLM Configuration
@@ -199,12 +199,12 @@ class Settings(BaseSettings):
         default=0,
         description="Max output tokens for OpenAI-compatible endpoint (0 = no limit)",
     )
-    gemini_model: str = Field(default="gemini-2.5-flash", description="Gemini model to use")
+    gemini_model: str = Field(default="gemini-3-pro-preview", description="Gemini model to use")
     openai_api_key: str | None = Field(default=None, description="OpenAI API key")
-    openai_model: str = Field(default="gpt-4o", description="OpenAI model to use")
+    openai_model: str = Field(default="gpt-5.2", description="OpenAI model to use")
     anthropic_api_key: str | None = Field(default=None, description="Anthropic API key")
     anthropic_model: str = Field(
-        default="claude-sonnet-4-5-20250929", description="Anthropic model to use"
+        default="claude-sonnet-4-6", description="Anthropic model to use"
     )
 
     # Memory Backend
@@ -371,7 +371,7 @@ class Settings(BaseSettings):
         default="claude-haiku-4-5-20251001", description="Model for simple tasks (greetings, facts)"
     )
     model_tier_moderate: str = Field(
-        default="claude-sonnet-4-5-20250929",
+        default="claude-sonnet-4-6",
         description="Model for moderate tasks (coding, analysis)",
     )
     model_tier_complex: str = Field(

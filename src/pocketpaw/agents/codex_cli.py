@@ -50,6 +50,7 @@ class CodexCLIBackend:
             install_hint={
                 "external_cmd": "npm install -g @openai/codex",
             },
+            beta=True,
         )
 
     def __init__(self, settings: Settings) -> None:
@@ -103,7 +104,7 @@ class CodexCLIBackend:
             prompt_parts.append(message)
             full_prompt = "\n\n".join(prompt_parts)
 
-            model = self.settings.codex_cli_model or "o4-mini"
+            model = self.settings.codex_cli_model or "gpt-5.3-codex"
 
             cmd = [
                 "codex",
@@ -278,5 +279,5 @@ class CodexCLIBackend:
             "backend": "codex_cli",
             "cli_available": self._cli_available,
             "running": self._process is not None and self._process.returncode is None,
-            "model": self.settings.codex_cli_model or "o4-mini",
+            "model": self.settings.codex_cli_model or "gpt-5.3-codex",
         }
