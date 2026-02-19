@@ -57,7 +57,10 @@ class TelegramAdapter(BaseChannelAdapter):
 
         # Add Handlers
         self.app.add_handler(CommandHandler("start", self._handle_start))
-        _cmds = ("new", "sessions", "resume", "clear", "rename", "status", "delete", "help")
+        _cmds = (
+            "new", "sessions", "resume", "clear", "rename", "status", "delete",
+            "backend", "backends", "model", "tools", "help",
+        )
         for cmd_name in _cmds:
             self.app.add_handler(CommandHandler(cmd_name, self._handle_command))
         media_filter = (
@@ -92,6 +95,10 @@ class TelegramAdapter(BaseChannelAdapter):
                     BotCommand("rename", "Rename the current session"),
                     BotCommand("status", "Show session info"),
                     BotCommand("delete", "Delete the current session"),
+                    BotCommand("backend", "Show or switch agent backend"),
+                    BotCommand("backends", "List available backends"),
+                    BotCommand("model", "Show or switch model"),
+                    BotCommand("tools", "Show or switch tool profile"),
                     BotCommand("help", "Show available commands"),
                 ]
             )
