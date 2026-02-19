@@ -111,7 +111,7 @@ class Settings(BaseSettings):
         description="Model for Claude SDK backend (empty = let Claude Code auto-select)",
     )
     claude_sdk_max_turns: int = Field(
-        default=0,
+        default=100,
         description="Max tool-use turns per query in Claude SDK (0 = unlimited)",
     )
 
@@ -124,7 +124,7 @@ class Settings(BaseSettings):
         default="", description="Model for OpenAI Agents backend (empty = gpt-5.2)"
     )
     openai_agents_max_turns: int = Field(
-        default=0, description="Max turns per query in OpenAI Agents backend (0 = unlimited)"
+        default=100, description="Max turns per query in OpenAI Agents backend (0 = unlimited)"
     )
 
     # Gemini CLI Settings (legacy, kept for config compat)
@@ -132,7 +132,7 @@ class Settings(BaseSettings):
         default="gemini-3-pro-preview", description="Model for Gemini CLI backend (legacy)"
     )
     gemini_cli_max_turns: int = Field(
-        default=0, description="Max turns per query in Gemini CLI backend (legacy, 0 = unlimited)"
+        default=100, description="Max turns per query in Gemini CLI backend (legacy, 0 = unlimited)"
     )
 
     # Google ADK Settings
@@ -140,7 +140,7 @@ class Settings(BaseSettings):
         default="gemini-3-pro-preview", description="Model for Google ADK backend"
     )
     google_adk_max_turns: int = Field(
-        default=0, description="Max turns per query in Google ADK backend (0 = unlimited)"
+        default=100, description="Max turns per query in Google ADK backend (0 = unlimited)"
     )
 
     # Codex CLI Settings
@@ -148,7 +148,7 @@ class Settings(BaseSettings):
         default="gpt-5.3-codex", description="Model for Codex CLI backend"
     )
     codex_cli_max_turns: int = Field(
-        default=0, description="Max turns per query in Codex CLI backend (0 = unlimited)"
+        default=100, description="Max turns per query in Codex CLI backend (0 = unlimited)"
     )
 
     # Copilot SDK Settings
@@ -160,7 +160,7 @@ class Settings(BaseSettings):
         default="", description="Model for Copilot SDK backend (empty = gpt-5.2)"
     )
     copilot_sdk_max_turns: int = Field(
-        default=0, description="Max turns per query in Copilot SDK backend (0 = unlimited)"
+        default=100, description="Max turns per query in Copilot SDK backend (0 = unlimited)"
     )
 
     # OpenCode Settings
@@ -173,7 +173,7 @@ class Settings(BaseSettings):
         description="Model for OpenCode (provider/model format, e.g. anthropic/claude-sonnet-4-6)",
     )
     opencode_max_turns: int = Field(
-        default=0, description="Max turns per query in OpenCode backend (0 = unlimited)"
+        default=100, description="Max turns per query in OpenCode backend (0 = unlimited)"
     )
 
     # LLM Configuration
