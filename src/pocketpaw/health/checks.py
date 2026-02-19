@@ -186,66 +186,82 @@ def check_api_key_primary() -> HealthCheckResult:
             fix_hint="Set your API key in Settings > API Keys, or set ANTHROPIC_API_KEY env var.",
         )
 
-    elif backend == "pocketpaw_native":
-        provider = settings.llm_provider
-        if provider == "ollama":
+    elif backend == "google_adk":
+        import os
+
+        has_key = bool(settings.google_api_key) or bool(os.environ.get("GOOGLE_API_KEY"))
+        if has_key:
             return HealthCheckResult(
                 check_id="api_key_primary",
                 name="Primary API Key",
                 category="config",
                 status="ok",
-                message="Ollama backend (no API key needed)",
+                message="Google API key is configured for Google ADK",
                 fix_hint="",
             )
-        elif provider == "anthropic" or provider == "auto":
-            if settings.anthropic_api_key:
-                return HealthCheckResult(
-                    check_id="api_key_primary",
-                    name="Primary API Key",
-                    category="config",
-                    status="ok",
-                    message="Anthropic API key configured for Native backend",
-                    fix_hint="",
-                )
-        elif provider == "openai":
-            if settings.openai_api_key:
-                return HealthCheckResult(
-                    check_id="api_key_primary",
-                    name="Primary API Key",
-                    category="config",
-                    status="ok",
-                    message="OpenAI API key configured",
-                    fix_hint="",
-                )
-        elif provider == "gemini":
-            if settings.google_api_key:
-                return HealthCheckResult(
-                    check_id="api_key_primary",
-                    name="Primary API Key",
-                    category="config",
-                    status="ok",
-                    message="Google API key configured for Gemini",
-                    fix_hint="",
-                )
-
         return HealthCheckResult(
             check_id="api_key_primary",
             name="Primary API Key",
             category="config",
             status="critical",
-            message=f"No API key for {backend} with provider={provider}",
-            fix_hint="Set your API key in Settings > API Keys.",
+            message="No Google API key found for Google ADK backend",
+            fix_hint=(
+                "Set your Google API key in Settings > API Keys,"
+                " or set GOOGLE_API_KEY env var."
+            ),
         )
 
-    elif backend == "open_interpreter":
+    elif backend == "openai_agents":
+        import os
+
+        has_key = bool(settings.openai_api_key) or bool(os.environ.get("OPENAI_API_KEY"))
+        if has_key:
+            return HealthCheckResult(
+                check_id="api_key_primary",
+                name="Primary API Key",
+                category="config",
+                status="ok",
+                message="OpenAI API key is configured for OpenAI Agents",
+                fix_hint="",
+            )
+        return HealthCheckResult(
+            check_id="api_key_primary",
+            name="Primary API Key",
+            category="config",
+            status="critical",
+            message="No OpenAI API key found for OpenAI Agents backend",
+            fix_hint=(
+                "Set your OpenAI API key in Settings > API Keys,"
+                " or set OPENAI_API_KEY env var."
+            ),
+        )
+
+    elif backend in ("codex_cli", "opencode", "copilot_sdk"):
+        # Subprocess-based backends manage their own auth
         return HealthCheckResult(
             check_id="api_key_primary",
             name="Primary API Key",
             category="config",
             status="ok",
-            message="Open Interpreter manages its own credentials",
+            message=f"{backend} manages its own credentials",
             fix_hint="",
         )
+
+    # Check if it's a legacy backend name
+    from pocketpaw.agents.registry import _LEGACY_BACKENDS
+
+    if backend in _LEGACY_BACKENDS:
+        fallback = _LEGACY_BACKENDS[backend]
+        return HealthCheckResult(
+            check_id="api_key_primary",
+            name="Primary API Key",
+            category="config",
+            status="warning",
+            message=f"Backend '{backend}' has been removed — will fall back to '{fallback}'",
+            fix_hint=f"Update agent_backend to '{fallback}' in Settings.",
+        )
+
+    from pocketpaw.agents.registry import list_backends
 
     return HealthCheckResult(
         check_id="api_key_primary",
@@ -253,7 +269,7 @@ def check_api_key_primary() -> HealthCheckResult:
         category="config",
         status="warning",
         message=f"Unknown backend: {backend}",
-        fix_hint="Set agent_backend to 'claude_agent_sdk', 'pocketpaw_native', or 'open_interpreter'.",
+        fix_hint=f"Set agent_backend to one of: {', '.join(list_backends())}",
     )
 
 
@@ -303,15 +319,18 @@ def check_backend_deps() -> HealthCheckResult:
     backend = settings.agent_backend
     missing = []
 
-    if backend == "claude_agent_sdk":
-        if importlib.util.find_spec("claude_code_sdk") is None:
-            missing.append("claude-code-sdk")
-    elif backend == "pocketpaw_native":
-        if importlib.util.find_spec("anthropic") is None:
-            missing.append("anthropic")
-    elif backend == "open_interpreter":
-        if importlib.util.find_spec("interpreter") is None:
-            missing.append("open-interpreter")
+    _BACKEND_DEPS: dict[str, tuple[str, str]] = {
+        "claude_agent_sdk": ("claude_code_sdk", "claude-code-sdk"),
+        "google_adk": ("google.adk", "pocketpaw[google-adk]"),
+        "openai_agents": ("agents", "pocketpaw[openai-agents]"),
+    }
+    # codex_cli, opencode, copilot_sdk are subprocess backends — no pip deps
+
+    dep = _BACKEND_DEPS.get(backend)
+    if dep:
+        spec_name, pip_name = dep
+        if importlib.util.find_spec(spec_name) is None:
+            missing.append(pip_name)
 
     if missing:
         return HealthCheckResult(
@@ -594,7 +613,10 @@ async def check_llm_reachable() -> HealthCheckResult:
                         name="LLM Reachable",
                         category="connectivity",
                         status="critical",
-                        message=f"Anthropic API reachable but key is invalid (HTTP {resp.status_code})",
+                        message=(
+                            "Anthropic API reachable but key is invalid"
+                            f" (HTTP {resp.status_code})"
+                        ),
                         fix_hint="Check your API key in Settings > API Keys.",
                     )
             return HealthCheckResult(
@@ -615,32 +637,114 @@ async def check_llm_reachable() -> HealthCheckResult:
                 fix_hint="Check your internet connection or https://status.anthropic.com",
             )
 
-    elif backend == "pocketpaw_native":
-        provider = settings.llm_provider
-        if provider == "ollama":
-            try:
-                import httpx
+    elif backend == "google_adk":
+        try:
+            import os
 
-                async with httpx.AsyncClient(timeout=5.0) as client:
-                    resp = await client.get(f"{settings.ollama_host}/api/tags")
-                if resp.status_code == 200:
-                    return HealthCheckResult(
-                        check_id="llm_reachable",
-                        name="LLM Reachable",
-                        category="connectivity",
-                        status="ok",
-                        message=f"Ollama is reachable at {settings.ollama_host}",
-                        fix_hint="",
-                    )
-            except Exception as e:
+            import httpx
+
+            api_key = settings.google_api_key or os.environ.get("GOOGLE_API_KEY", "")
+            if not api_key:
                 return HealthCheckResult(
                     check_id="llm_reachable",
                     name="LLM Reachable",
                     category="connectivity",
                     status="critical",
-                    message=f"Cannot reach Ollama at {settings.ollama_host}: {e}",
-                    fix_hint="Start Ollama with: ollama serve",
+                    message="No Google API key to test connectivity",
+                    fix_hint="Set your Google API key first.",
                 )
+
+            model = settings.google_adk_model or "gemini-2.5-flash"
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(
+                    f"https://generativelanguage.googleapis.com/v1beta/models/{model}",
+                    params={"key": api_key},
+                )
+            if resp.status_code == 200:
+                return HealthCheckResult(
+                    check_id="llm_reachable",
+                    name="LLM Reachable",
+                    category="connectivity",
+                    status="ok",
+                    message=f"Google AI API is reachable (model: {model})",
+                    fix_hint="",
+                )
+            elif resp.status_code in (401, 403):
+                return HealthCheckResult(
+                    check_id="llm_reachable",
+                    name="LLM Reachable",
+                    category="connectivity",
+                    status="critical",
+                    message=f"Google AI API reachable but key is invalid (HTTP {resp.status_code})",
+                    fix_hint="Check your Google API key in Settings > API Keys.",
+                )
+            return HealthCheckResult(
+                check_id="llm_reachable",
+                name="LLM Reachable",
+                category="connectivity",
+                status="warning",
+                message=f"Google AI API returned HTTP {resp.status_code}",
+                fix_hint="Check your Google API key and model name.",
+            )
+        except Exception as e:
+            return HealthCheckResult(
+                check_id="llm_reachable",
+                name="LLM Reachable",
+                category="connectivity",
+                status="critical",
+                message=f"Cannot reach Google AI API: {e}",
+                fix_hint="Check your internet connection.",
+            )
+
+    elif backend == "openai_agents":
+        try:
+            import os
+
+            import httpx
+
+            api_key = settings.openai_api_key or os.environ.get("OPENAI_API_KEY", "")
+            if not api_key:
+                return HealthCheckResult(
+                    check_id="llm_reachable",
+                    name="LLM Reachable",
+                    category="connectivity",
+                    status="critical",
+                    message="No OpenAI API key to test connectivity",
+                    fix_hint="Set your OpenAI API key first.",
+                )
+
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(
+                    "https://api.openai.com/v1/models",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                )
+            if resp.status_code == 200:
+                return HealthCheckResult(
+                    check_id="llm_reachable",
+                    name="LLM Reachable",
+                    category="connectivity",
+                    status="ok",
+                    message="OpenAI API is reachable and key is valid",
+                    fix_hint="",
+                )
+            elif resp.status_code in (401, 403):
+                return HealthCheckResult(
+                    check_id="llm_reachable",
+                    name="LLM Reachable",
+                    category="connectivity",
+                    status="critical",
+                    message=f"OpenAI API reachable but key is invalid (HTTP {resp.status_code})",
+                    fix_hint="Check your OpenAI API key in Settings > API Keys.",
+                )
+        except Exception as e:
+            return HealthCheckResult(
+                check_id="llm_reachable",
+                name="LLM Reachable",
+                category="connectivity",
+                status="critical",
+                message=f"Cannot reach OpenAI API: {e}",
+                fix_hint="Check your internet connection.",
+            )
 
     # Fallback for other backends
     return HealthCheckResult(
