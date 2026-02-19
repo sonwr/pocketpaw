@@ -65,6 +65,7 @@ class AgentLoop:
         self._session_locks: dict[str, asyncio.Lock] = {}
         self._global_semaphore = asyncio.Semaphore(self.settings.max_concurrent_conversations)
         self._background_tasks: set[asyncio.Task] = set()
+        self._active_tasks: dict[str, asyncio.Task] = {}  # session_key -> processing task
 
         self._running = False
 
@@ -88,6 +89,19 @@ class AgentLoop:
         self._running = False
         logger.info("🛑 Agent Loop stopped")
 
+    async def cancel_session(self, session_key: str) -> bool:
+        """Cancel in-flight processing for a session. Returns True if cancelled."""
+        router = self._router
+        if router is not None:
+            await router.stop()
+
+        task = self._active_tasks.get(session_key)
+        if task is not None and not task.done():
+            task.cancel()
+            logger.info("Cancelled processing task for session %s", session_key)
+            return True
+        return False
+
     async def _loop(self) -> None:
         """Main processing loop."""
         while self._running:
@@ -97,9 +111,16 @@ class AgentLoop:
                 continue
 
             # 2. Process message in background task (to not block loop)
+            session_key = message.session_key
             task = asyncio.create_task(self._process_message(message))
             self._background_tasks.add(task)
-            task.add_done_callback(self._background_tasks.discard)
+            self._active_tasks[session_key] = task
+
+            def _on_done(t: asyncio.Task, key: str = session_key) -> None:
+                self._background_tasks.discard(t)
+                self._active_tasks.pop(key, None)
+
+            task.add_done_callback(_on_done)
 
     async def _process_message(self, message: InboundMessage) -> None:
         """Process a single message flow using AgentRouter."""
@@ -109,18 +130,22 @@ class AgentLoop:
         # Resolve alias so two chats aliased to the same session serialize correctly
         resolved_key = await self.memory.resolve_session_key(session_key)
 
-        # Global concurrency limit — blocks until a slot is available
-        async with self._global_semaphore:
-            # Per-session lock — serializes messages within the same session
-            if resolved_key not in self._session_locks:
-                self._session_locks[resolved_key] = asyncio.Lock()
-            lock = self._session_locks[resolved_key]
-            async with lock:
-                await self._process_message_inner(message, resolved_key)
+        try:
+            # Global concurrency limit — blocks until a slot is available
+            async with self._global_semaphore:
+                # Per-session lock — serializes messages within the same session
+                if resolved_key not in self._session_locks:
+                    self._session_locks[resolved_key] = asyncio.Lock()
+                lock = self._session_locks[resolved_key]
+                async with lock:
+                    await self._process_message_inner(message, resolved_key)
 
-            # Clean up lock if no one else is waiting on it
-            if not lock.locked():
-                self._session_locks.pop(resolved_key, None)
+                # Clean up lock if no one else is waiting on it
+                if not lock.locked():
+                    self._session_locks.pop(resolved_key, None)
+        except asyncio.CancelledError:
+            logger.info("Processing cancelled for session %s", session_key)
+            raise
 
     _WELCOME_EXCLUDED = frozenset({Channel.WEBSOCKET, Channel.CLI, Channel.SYSTEM})
 
@@ -243,6 +268,7 @@ class AgentLoop:
             router = self._get_router()
             full_response = ""
             media_paths: list[str] = []
+            cancelled = False
 
             run_iter = router.run(
                 content, system_prompt=system_prompt, history=history, session_key=session_key
@@ -331,6 +357,9 @@ class AgentLoop:
 
                     elif etype == "done":
                         pass
+            except asyncio.CancelledError:
+                cancelled = True
+                logger.info("Stream cancelled for session %s", session_key)
             finally:
                 await run_iter.aclose()
 
@@ -356,15 +385,19 @@ class AgentLoop:
             )
 
             # 5. Store assistant response in memory
+            if cancelled and full_response:
+                full_response += "\n\n[Response interrupted]"
             if full_response:
                 await self.memory.add_to_session(
                     session_key=session_key, role="assistant", content=full_response
                 )
 
                 # 6. Auto-learn: extract facts from conversation (non-blocking)
-                should_auto_learn = (
-                    self.settings.memory_backend == "mem0" and self.settings.mem0_auto_learn
-                ) or (self.settings.memory_backend == "file" and self.settings.file_auto_learn)
+                # Skip auto-learn on cancelled responses — partial data is unreliable
+                should_auto_learn = not cancelled and (
+                    (self.settings.memory_backend == "mem0" and self.settings.mem0_auto_learn)
+                    or (self.settings.memory_backend == "file" and self.settings.file_auto_learn)
+                )
                 if should_auto_learn:
                     t = asyncio.create_task(
                         self._auto_learn(

@@ -2335,6 +2335,13 @@ async def websocket_endpoint(
                 # Actually, let's treat 'chat' as input to the Bus.
                 await ws_adapter.handle_message(chat_id, data)
 
+            # Stop in-flight response
+            elif action == "stop":
+                session_key = f"websocket:{chat_id}"
+                cancelled = await agent_loop.cancel_session(session_key)
+                if not cancelled:
+                    await websocket.send_json({"type": "stream_end"})
+
             # Session switching
             elif action == "switch_session":
                 session_id = data.get("session_id", "")
