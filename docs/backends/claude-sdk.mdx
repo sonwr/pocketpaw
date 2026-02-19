@@ -91,7 +91,7 @@ The SDK uses capitalized tool names internally. PocketPaw maps these to the poli
 | `Edit` | `edit_file` |
 | `Skill` | `skill` |
 
-This mapping is handled by `_SDK_TO_POLICY` in `claude_sdk.py`.
+This mapping is handled by `_TOOL_POLICY_MAP` in the backend's `info()` method.
 
 ## Safety Hooks
 
@@ -141,11 +141,13 @@ This means skills created by the `skill_gen` tool (which writes to `~/.claude/sk
 
 ## Response Format
 
-The backend yields standardized response chunks:
+The backend yields standardized `AgentEvent` objects (not raw dicts):
 
 ```python
-{"type": "message", "content": "Here's the result..."}
-{"type": "tool_use", "content": "", "metadata": {"tool": "Bash", "input": {"command": "ls"}}}
-{"type": "tool_result", "content": "file1.txt\nfile2.txt", "metadata": {"tool": "Bash"}}
-{"type": "done", "content": ""}
+AgentEvent(type="message", content="Here's the result...")
+AgentEvent(type="tool_use", content="", metadata={"tool": "Bash", "input": {"command": "ls"}})
+AgentEvent(type="tool_result", content="file1.txt\nfile2.txt", metadata={"tool": "Bash"})
+AgentEvent(type="done", content="")
 ```
+
+All backends use the same `AgentEvent` format, defined in `agents/backend.py`.
