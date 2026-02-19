@@ -37,20 +37,15 @@
 
 ## Quick Start
 
-```bash
-curl -fsSL https://pocketpaw.xyz/install.sh | sh
-```
-
-Or install directly:
-
-```bash
+### 🐧 Linux / macOS
+```sh
 pip install pocketpaw && pocketpaw
 ```
 
 **That's it.** The web dashboard opens automatically at `http://localhost:8888`. Connect Discord, Slack, WhatsApp, or Telegram and control your agent from anywhere.
 
-<details>
-<summary>More install options</summary>
+> **Note for Windows users:** Some features (browser automation, shell tools) work best
+> under WSL2. Native Windows support covers the web dashboard and all LLM chat features.
 
 ```bash
 pipx install pocketpaw && pocketpaw    # Isolated install
@@ -61,7 +56,8 @@ git clone https://github.com/pocketpaw/pocketpaw.git
 cd pocketpaw && uv run pocketpaw
 ```
 
-</details>
+> ⚠️ **Note:** The `curl -fsSL https://pocketpaw.xyz/install.sh | sh` one-liner is
+> temporarily unavailable. Use the pip install above — it's equally fast.
 
 <details>
 <summary>Docker</summary>
