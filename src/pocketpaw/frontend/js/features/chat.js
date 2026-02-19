@@ -198,6 +198,15 @@ window.PocketPaw.Chat = {
             /**
              * Toggle agent mode
              */
+            /**
+             * Stop in-flight response
+             */
+            stopResponse() {
+                if (!this.isStreaming) return;
+                socket.stopResponse();
+                this.log('Stop requested', 'info');
+            },
+
             toggleAgent() {
                 socket.toggleAgent(this.agentActive);
                 this.log(`Switched Agent Mode: ${this.agentActive ? 'ON' : 'OFF'}`, 'info');

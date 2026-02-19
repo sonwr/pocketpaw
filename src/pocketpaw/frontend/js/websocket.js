@@ -185,6 +185,10 @@ class PocketPawSocket {
         this.send('chat', { message });
     }
 
+    stopResponse() {
+        this.send('stop');
+    }
+
     saveSettings(settings) {
         this.send('settings', {
             agent_backend: settings.agentBackend,
