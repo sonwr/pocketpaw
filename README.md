@@ -149,9 +149,11 @@ Guardian AI safety checks, injection scanner, tool policy engine (profiles + all
 Config at `~/.pocketpaw/config.json`, or use `POCKETPAW_`-prefixed env vars, or the dashboard Settings panel. API keys are encrypted at rest.
 
 ```bash
-export POCKETPAW_ANTHROPIC_API_KEY="sk-ant-..."   # Or use Ollama for free local models
+export POCKETPAW_ANTHROPIC_API_KEY="sk-ant-..."   # Required for Claude SDK backend
 export POCKETPAW_AGENT_BACKEND="claude_agent_sdk"  # or openai_agents, google_adk, etc.
 ```
+
+> **Note:** An Anthropic API key from [console.anthropic.com](https://console.anthropic.com/api-keys) is required for the Claude SDK backend. OAuth tokens from Claude Free/Pro/Max plans are [not permitted](https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use) for third-party use. For free local inference, use Ollama instead.
 
 See the [full configuration reference](https://docs.pocketpaw.xyz/getting-started/configuration) for all settings.
 

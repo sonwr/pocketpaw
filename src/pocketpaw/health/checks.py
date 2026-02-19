@@ -166,9 +166,22 @@ def check_api_key_primary() -> HealthCheckResult:
     backend = settings.agent_backend
 
     if backend == "claude_agent_sdk":
-        # Claude Agent SDK uses its own auth (ANTHROPIC_API_KEY env var)
-        # Check both settings and env
+        # API key is REQUIRED for the Anthropic provider. OAuth tokens from
+        # Free/Pro/Max plans are not permitted for third-party use.
+        # See: https://code.claude.com/docs/en/legal-and-compliance
         import os
+
+        # Skip check for non-Anthropic providers (Ollama, OpenAI-compatible, Gemini)
+        sdk_provider = getattr(settings, "claude_sdk_provider", None) or "anthropic"
+        if sdk_provider in ("ollama", "openai_compatible", "gemini"):
+            return HealthCheckResult(
+                check_id="api_key_primary",
+                name="Primary API Key",
+                category="config",
+                status="ok",
+                message=f"Claude SDK using {sdk_provider} provider (no Anthropic key needed)",
+                fix_hint="",
+            )
 
         has_key = bool(settings.anthropic_api_key) or bool(os.environ.get("ANTHROPIC_API_KEY"))
         if has_key:
@@ -185,14 +198,20 @@ def check_api_key_primary() -> HealthCheckResult:
             name="Primary API Key",
             category="config",
             status="critical",
-            message="No Anthropic API key found for Claude Agent SDK backend",
-            fix_hint="Set your API key in Settings > API Keys, or set ANTHROPIC_API_KEY env var.",
+            message=(
+                "No Anthropic API key found — required for Claude SDK backend. "
+                "OAuth tokens from Free/Pro/Max plans are not permitted for third-party use."
+            ),
+            fix_hint=(
+                "Get an API key at https://console.anthropic.com/api-keys "
+                "and add it in Settings > API Keys, or set ANTHROPIC_API_KEY env var."
+            ),
             details=[
-       "Claude Agent SDK requires a valid Anthropic API key.",
-        "Get your API key from https://console.anthropic.com/",
-        "Then set it in PocketPaw Settings or as an environment variable.",
-        "Restart PocketPaw after setting the API key."
-    ]
+                "Anthropic's policy prohibits third-party use of OAuth tokens from Free/Pro/Max plans.",
+                "Get an API key from https://console.anthropic.com/api-keys",
+                "Set it in PocketPaw Settings > API Keys, or as ANTHROPIC_API_KEY env var.",
+                "Alternatively, switch to Ollama (Local) for free local inference.",
+            ]
         )
 
     elif backend == "google_adk":

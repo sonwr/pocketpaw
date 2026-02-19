@@ -535,12 +535,40 @@ class ClaudeSDKBackend:
         try:
             # Resolve LLM provider early — needed for routing + env.
             # Use per-backend provider setting (defaults to "anthropic").
-            # The Claude SDK backend runs the CLI as a subprocess, which has
-            # its own OAuth credentials. force_provider ensures correct env vars.
+            # An API key is REQUIRED for Anthropic provider — OAuth tokens from
+            # Claude Free/Pro/Max plans are not permitted for third-party use.
+            # See: https://code.claude.com/docs/en/legal-and-compliance
             from pocketpaw.llm.client import resolve_llm_client
 
             provider = self.settings.claude_sdk_provider or "anthropic"
             llm = resolve_llm_client(self.settings, force_provider=provider)
+
+            # ── API key enforcement for Anthropic provider ──────────────
+            # Anthropic's policy prohibits using OAuth tokens from Free/Pro/Max
+            # plans in third-party products. PocketPaw must use API key auth.
+            if not (llm.is_ollama or llm.is_openai_compatible or llm.is_gemini):
+                has_api_key = bool(
+                    llm.api_key or os.environ.get("ANTHROPIC_API_KEY")
+                )
+                if not has_api_key:
+                    yield AgentEvent(
+                        type="error",
+                        content=(
+                            "**API key required** — The Claude SDK backend requires "
+                            "an Anthropic API key.\n\n"
+                            "Anthropic's policy prohibits third-party applications from "
+                            "using OAuth tokens (Free/Pro/Max plan credentials). "
+                            "PocketPaw must authenticate with an API key.\n\n"
+                            "**How to fix:**\n"
+                            "1. Get an API key at "
+                            "[console.anthropic.com](https://console.anthropic.com/api-keys)\n"
+                            "2. Add it in **Settings → API Keys → Anthropic API Key**\n"
+                            "3. Or set the `ANTHROPIC_API_KEY` environment variable\n\n"
+                            "*Alternatively, switch to **Ollama (Local)** in Settings "
+                            "→ General for free local inference.*"
+                        ),
+                    )
+                    return
 
             # Smart model routing — classify BEFORE prompt composition so we
             # can skip tool instructions for SIMPLE messages and dispatch to
@@ -566,8 +594,7 @@ class ClaudeSDKBackend:
                 )
 
             # Fast path: bypass CLI subprocess entirely for simple messages.
-            # Requires an API key — the Claude CLI uses OAuth which we can't
-            # reuse here. Fall back to standard path if no key is available.
+            # Uses the Anthropic API directly (requires API key, already enforced above).
             has_api_key = bool(llm.api_key or os.environ.get("ANTHROPIC_API_KEY"))
             if is_simple and selection is not None and has_api_key:
                 identity = system_prompt or _DEFAULT_IDENTITY
@@ -639,9 +666,10 @@ class ClaudeSDKBackend:
             }
 
             # Configure LLM provider for the Claude CLI subprocess.
+            # API key is enforced above for Anthropic; Ollama/OpenAI-compat
+            # providers set their own env vars via to_sdk_env().
             sdk_env = llm.to_sdk_env()
             if not sdk_env:
-                # Fall back to env var if settings has no key
                 env_key = os.environ.get("ANTHROPIC_API_KEY")
                 if env_key:
                     sdk_env = {"ANTHROPIC_API_KEY": env_key}

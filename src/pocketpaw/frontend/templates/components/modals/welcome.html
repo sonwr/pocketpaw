@@ -102,7 +102,7 @@
                         class="w-full bg-black/30 border border-[var(--glass-border)] rounded-[10px] py-2.5 px-3 text-[13px] text-white focus:outline-none focus:border-[var(--accent-color)] focus:bg-black/40 transition-all placeholder-white/40"
                         @keydown.enter="if (wizardKey) { _wizardSaveKey(wizardBackend, wizardKey); wizardStep = 3; }"
                     />
-                    <small class="text-white/40 text-[11px]">Optional if logged into Claude Code CLI via OAuth.</small>
+                    <small class="text-white/40 text-[11px]">Required — get a key at <a href="https://console.anthropic.com/api-keys" target="_blank" rel="noopener" class="underline hover:text-white/60">console.anthropic.com</a></small>
                 </div>
                 <!-- OpenAI key -->
                 <div x-show="wizardBackend === 'openai_agents' || wizardBackend === 'codex_cli'" class="flex flex-col gap-1.5">
@@ -177,7 +177,7 @@
                 >
                 </button>
                 <button
-                    x-show="wizardBackend !== 'ollama_local'"
+                    x-show="wizardBackend !== 'ollama_local' && wizardBackend !== 'claude_agent_sdk'"
                     class="w-full text-white/50 hover:text-white/80 py-2 text-[12px] transition-colors"
                     @click="wizardStep = 3; $nextTick(() => { if (window.refreshIcons) window.refreshIcons(); })"
                 >
