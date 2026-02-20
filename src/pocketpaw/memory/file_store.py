@@ -414,9 +414,15 @@ class FileMemoryStore:
 
         query_lower = query.lower()
         sessions_path = self.sessions_path
-        index_snapshot = self._load_session_index()
+        index_path = self._index_path
 
         def _search_sync() -> list[dict]:
+            # Load index inside the thread so its file I/O doesn't block
+            # the event loop either.
+            try:
+                index_snapshot = json.loads(index_path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError, FileNotFoundError):
+                index_snapshot = {}
             results: list[dict] = []
             for session_file in sessions_path.glob("*.json"):
                 if session_file.name.startswith("_") or session_file.name.endswith(
