@@ -293,8 +293,11 @@ _TEST_TOKEN = "test-session-token-12345"
 
 @pytest.fixture
 def _mock_auth():
-    """Mock auth for dashboard API requests."""
-    with patch("pocketpaw.dashboard.get_access_token", return_value=_TEST_TOKEN):
+    """Mock auth for dashboard API requests and WS handler."""
+    with (
+        patch("pocketpaw.dashboard_auth.get_access_token", return_value=_TEST_TOKEN),
+        patch("pocketpaw.dashboard.get_access_token", return_value=_TEST_TOKEN),
+    ):
         yield
 
 
