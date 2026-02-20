@@ -46,9 +46,12 @@ The `Dockerfile` uses a multi-stage build for a lean runtime image:
 - Creates a virtual environment and installs `pocketpaw[all]`
 - Downloads Playwright Chromium
 
+**Node stage** (`node:22-slim`):
+- Installs Claude Code CLI (`@anthropic-ai/claude-code`) and Codex CLI (`@openai/codex`) globally
+
 **Runtime stage** (`python:3.12-slim`):
 - Installs only runtime system deps (tesseract, Chromium shared libs, curl)
-- Installs Node.js 22 + Claude Code CLI (`@anthropic-ai/claude-code`) and Codex CLI (`@openai/codex`)
+- Copies Node.js binary and global packages from the node stage (no `curl | bash`)
 - Copies the venv and Playwright browsers from the builder
 - Creates a `/home/pocketpaw/workspace` directory for agent-created files
 - Runs as a non-root `pocketpaw` user
@@ -56,6 +59,10 @@ The `Dockerfile` uses a multi-stage build for a lean runtime image:
 
 <Callout type="info">
   The container binds to `0.0.0.0:8888` by default (set via `POCKETPAW_WEB_HOST` and `POCKETPAW_WEB_PORT` environment variables in the Dockerfile).
+</Callout>
+
+<Callout type="tip">
+  The Node.js layer (runtime + Claude Code CLI + Codex CLI) adds roughly 200 MB to the image. If you don't need the `claude_agent_sdk` or `codex_cli` Docker-native CLI backends and want a smaller image, you can remove the `node` stage and the corresponding `COPY --from=node` lines in the Dockerfile.
 </Callout>
 
 ## Docker Compose

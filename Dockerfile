@@ -1,3 +1,11 @@
+# ---- Node.js stage ----
+# Copy Node.js from the official image instead of curl|bash from NodeSource
+FROM node:22-slim AS node
+
+# Pre-install CLI-based agent backends so they're cached in this layer
+RUN npm install -g @anthropic-ai/claude-code @openai/codex && \
+    npm cache clean --force
+
 # ---- Builder stage ----
 FROM python:3.12-slim AS builder
 
@@ -46,12 +54,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-liberation \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Node.js + CLI-based agent backends
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
-    apt-get install -y --no-install-recommends nodejs && \
-    npm install -g @anthropic-ai/claude-code @openai/codex && \
-    npm cache clean --force && \
-    rm -rf /var/lib/apt/lists/*
+# Copy Node.js + globally-installed CLI backends from the official node image
+COPY --from=node /usr/local/bin/node /usr/local/bin/node
+COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
+    ln -s /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx && \
+    ln -s /usr/local/lib/node_modules/@anthropic-ai/claude-code/cli.js /usr/local/bin/claude && \
+    ln -s /usr/local/lib/node_modules/@openai/codex/bin/codex.js /usr/local/bin/codex
 
 # Copy venv from builder
 COPY --from=builder /opt/venv /opt/venv
