@@ -345,6 +345,14 @@ class Settings(BaseSettings):
     session_token_ttl_hours: int = Field(
         default=24, description="TTL in hours for HMAC session tokens issued via /api/auth/session"
     )
+    api_cors_allowed_origins: list[str] = Field(
+        default_factory=list,
+        description="Additional CORS origins for external clients (e.g. tauri://localhost)",
+    )
+    api_rate_limit_per_key: int = Field(
+        default=60,
+        description="Max requests per minute per API key (token-bucket capacity)",
+    )
     file_jail_path: Path = Field(
         default_factory=Path.home, description="Root path for file operations"
     )
@@ -658,6 +666,9 @@ class Settings(BaseSettings):
             "injection_scan_llm_model": self.injection_scan_llm_model,
             "localhost_auth_bypass": self.localhost_auth_bypass,
             "session_token_ttl_hours": self.session_token_ttl_hours,
+            # External API
+            "api_cors_allowed_origins": self.api_cors_allowed_origins,
+            "api_rate_limit_per_key": self.api_rate_limit_per_key,
             # Smart routing
             "smart_routing_enabled": self.smart_routing_enabled,
             "model_tier_simple": self.model_tier_simple,

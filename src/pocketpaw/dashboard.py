@@ -45,6 +45,7 @@ except ImportError as _exc:
     ) from _exc
 
 from pocketpaw.agents.loop import AgentLoop
+from pocketpaw.api.v1 import mount_v1_routers
 from pocketpaw.bootstrap import DefaultBootstrapProvider
 from pocketpaw.bus import get_message_bus
 from pocketpaw.bus.adapters.websocket_adapter import WebSocketAdapter
@@ -85,11 +86,29 @@ TEMPLATES_DIR = FRONTEND_DIR / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 # Create FastAPI app
-app = FastAPI(title="PocketPaw Dashboard")
+app = FastAPI(
+    title="PocketPaw API",
+    description="Self-hosted AI agent — REST API for external clients and the web dashboard.",
+    version="1.0.0",
+    docs_url="/api/v1/docs",
+    redoc_url="/api/v1/redoc",
+    openapi_url="/api/v1/openapi.json",
+)
 
-# CORS — restrict to localhost + Cloudflare tunnel subdomains
+# CORS — localhost + Cloudflare tunnel + Tauri desktop + custom origins from config
+_BUILTIN_ORIGINS = [
+    "tauri://localhost",
+    "http://localhost:1420",  # Tauri dev server
+]
+try:
+    _custom_origins = Settings.load().api_cors_allowed_origins
+except Exception:
+    _custom_origins = []
+_EXTRA_ORIGINS = list(set(_BUILTIN_ORIGINS + _custom_origins))
+
 app.add_middleware(
     CORSMiddleware,
+    allow_origins=_EXTRA_ORIGINS,
     allow_origin_regex=(
         r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
         r"|^https://[a-zA-Z0-9-]+\.trycloudflare\.com$"
@@ -134,6 +153,9 @@ app.include_router(mission_control_router, prefix="/api/mission-control")
 # Mount Deep Work API router
 
 app.include_router(deep_work_router, prefix="/api/deep-work")
+
+# Mount API v1 routers at /api/v1/ (canonical) — see api/v1/__init__.py
+mount_v1_routers(app)
 
 
 async def broadcast_reminder(reminder: dict):
