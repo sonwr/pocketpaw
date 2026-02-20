@@ -6,6 +6,8 @@ services:
       - "${POCKETPAW_PORT:-8888}:8888"
     volumes:
       - pocketpaw-data:/home/pocketpaw/.pocketpaw
+      # Agent-created files (via Write/Bash tools) — accessible at ./workspace/ on host
+      - ./workspace:/home/pocketpaw/workspace
     env_file:
       - path: .env
         required: false

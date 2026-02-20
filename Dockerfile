@@ -56,7 +56,7 @@ COPY --from=builder /root/.cache/ms-playwright /home/pocketpaw/.cache/ms-playwri
 # Create non-root user
 RUN groupadd --system pocketpaw && \
     useradd --system --gid pocketpaw --create-home pocketpaw && \
-    mkdir -p /home/pocketpaw/.pocketpaw && \
+    mkdir -p /home/pocketpaw/.pocketpaw /home/pocketpaw/workspace && \
     chown -R pocketpaw:pocketpaw /home/pocketpaw
 
 USER pocketpaw
@@ -69,6 +69,8 @@ ENV POCKETPAW_WEB_PORT=8888
 # arrive from 172.x.x.x, not 127.0.0.1, so the bypass would never trigger.
 # Users authenticate with the access token instead.
 ENV POCKETPAW_LOCALHOST_AUTH_BYPASS=false
+# Agent-created files land here — bind-mount to access them on the host
+ENV POCKETPAW_FILE_JAIL_PATH=/home/pocketpaw/workspace
 
 EXPOSE 8888
 
