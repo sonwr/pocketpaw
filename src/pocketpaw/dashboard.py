@@ -1154,47 +1154,9 @@ async def update_session_title(session_id: str, request: Request):
 
 @app.get("/api/sessions/search")
 async def search_sessions(q: str = Query(""), limit: int = 20):
-    """Search sessions by content."""
-    import json
-
-    if not q.strip():
-        return {"sessions": []}
-
-    query_lower = q.lower()
+    """Search sessions by content (non-blocking)."""
     manager = get_memory_manager()
-    store = manager._store
-
-    if not hasattr(store, "sessions_path"):
-        return {"sessions": []}
-
-    results = []
-    index = store._load_session_index() if hasattr(store, "_load_session_index") else {}
-
-    for session_file in store.sessions_path.glob("*.json"):
-        if session_file.name.startswith("_") or session_file.name.endswith("_compaction.json"):
-            continue
-        try:
-            data = json.loads(session_file.read_text())
-            for msg in data:
-                if query_lower in msg.get("content", "").lower():
-                    safe_key = session_file.stem
-                    meta = index.get(safe_key, {})
-                    results.append(
-                        {
-                            "id": safe_key,
-                            "title": meta.get("title", "Untitled"),
-                            "channel": meta.get("channel", "unknown"),
-                            "match": msg["content"][:200],
-                            "match_role": msg.get("role", ""),
-                            "last_activity": meta.get("last_activity", ""),
-                        }
-                    )
-                    break
-        except (json.JSONDecodeError, OSError):
-            continue
-        if len(results) >= limit:
-            break
-
+    results = await manager.search_sessions(q, limit=limit)
     return {"sessions": results}
 
 
@@ -1509,6 +1471,36 @@ async def clear_health_errors():
         return {"cleared": False, "error": str(e)}
 
 
+@app.post("/api/system/restart")
+async def restart_server(request: Request):
+    """Restart the server process so host/port changes take effect.
+
+    Requires ``{"confirm": true}`` in the JSON body to prevent accidental restarts.
+    Triggers uvicorn's graceful shutdown so FastAPI's ``shutdown`` event runs all cleanup.
+    """
+    from fastapi.responses import JSONResponse
+
+    body = {}
+    if request.headers.get("content-type", "").startswith("application/json"):
+        try:
+            body = await request.json()
+        except Exception:
+            pass
+
+    if not body.get("confirm"):
+        return JSONResponse(
+            {"error": 'Missing confirm flag. Send {"confirm": true} to restart.'},
+            status_code=400,
+        )
+
+    settings = Settings.load()
+    settings.save()
+
+    if _server:
+        _server.should_exit = True
+    return {"restarting": True}
+
+
 @app.post("/api/health/check")
 async def trigger_health_check():
     """Run all health checks (startup + connectivity) and return results."""
@@ -1636,7 +1628,9 @@ def run_dashboard(
             log_level="debug",
         )
     else:
-        uvicorn.run(app, host=host, port=port)
+        config = uvicorn.Config(app, host=host, port=port)
+        _server = uvicorn.Server(config)
+        _server.run()
 
 
 if __name__ == "__main__":
