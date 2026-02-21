@@ -101,6 +101,9 @@ from pocketpaw.tunnel import get_tunnel_manager
 
 logger = logging.getLogger(__name__)
 
+# Module-level uvicorn server reference (set by run_dashboard, read by restart_server)
+_uvicorn_server = None
+
 # Get frontend directory
 FRONTEND_DIR = Path(__file__).parent / "frontend"
 TEMPLATES_DIR = FRONTEND_DIR / "templates"
@@ -1520,8 +1523,8 @@ async def restart_server(request: Request):
     settings = Settings.load()
     settings.save()
 
-    if _server:
-        _server.should_exit = True
+    if _uvicorn_server:
+        _uvicorn_server.should_exit = True
     return {"restarting": True}
 
 
@@ -1652,9 +1655,10 @@ def run_dashboard(
             log_level="debug",
         )
     else:
+        global _uvicorn_server
         config = uvicorn.Config(app, host=host, port=port)
-        _server = uvicorn.Server(config)
-        _server.run()
+        _uvicorn_server = uvicorn.Server(config)
+        _uvicorn_server.run()
 
 
 if __name__ == "__main__":

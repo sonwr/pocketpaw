@@ -44,17 +44,14 @@ def create_api_app():
     app.add_middleware(
         CORSMiddleware,
         allow_origins=_ORIGINS,
-        allow_origin_regex=(
-            r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
-            r"|^https://[a-zA-Z0-9-]+\.trycloudflare\.com$"
-        ),
+        allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type"],
     )
 
     # --- Auth middleware -------------------------------------------------
-    from pocketpaw.dashboard import auth_middleware
+    from pocketpaw.dashboard_auth import auth_middleware
 
     app.middleware("http")(auth_middleware)
 
