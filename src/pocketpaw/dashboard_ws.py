@@ -49,9 +49,18 @@ async def websocket_handler(
     """
     from pocketpaw.daemon import get_daemon
 
+    logger.info(
+        "WS handler called: client=%s, has_token=%s, has_cookie=%s, localhost_fn=%s",
+        websocket.client,
+        token is not None,
+        "pocketpaw_session" in (websocket.headers.get("cookie") or ""),
+        _is_genuine_localhost_fn is not None,
+    )
+
     # Rate limit WebSocket connections
     client_ip = websocket.client.host if websocket.client else "unknown"
     if not ws_limiter.allow(client_ip):
+        logger.warning("WS rate limited: %s", client_ip)
         await websocket.close(code=4029, reason="Too many connections")
         return
 
@@ -88,6 +97,12 @@ async def websocket_handler(
 
     # Check HTTP-only session cookie
     cookie_token = websocket.cookies.get("pocketpaw_session")
+    logger.info(
+        "WS auth: cookie=%s, token_valid=%s, cookie_valid=%s",
+        cookie_token[:20] + "..." if cookie_token else "none",
+        _token_valid(token),
+        _token_valid(cookie_token),
+    )
     if not _token_valid(token) and _token_valid(cookie_token):
         token = cookie_token  # Use cookie token for subsequent checks
 
@@ -110,6 +125,11 @@ async def websocket_handler(
 
     # Allow genuine localhost bypass for WebSocket (not tunneled proxies)
     is_localhost = _is_genuine_localhost_fn(websocket) if _is_genuine_localhost_fn else False
+    logger.info(
+        "WS auth final: token_valid=%s, is_localhost=%s",
+        _token_valid(token),
+        is_localhost,
+    )
 
     if not _token_valid(token) and not is_localhost:
         logger.warning(
@@ -121,22 +141,7 @@ async def websocket_handler(
         await websocket.close(code=4003, reason="Unauthorized")
         return
 
-    # Accept connection first — token can arrive via first message
-    if _token_valid(token) or is_localhost:
-        await websocket.accept()
-    else:
-        # Accept temporarily, wait for auth message
-        await websocket.accept()
-        try:
-            first_msg = await asyncio.wait_for(websocket.receive_json(), timeout=5.0)
-            if first_msg.get("action") == "authenticate" and _token_valid(first_msg.get("token")):
-                pass  # Authenticated
-            else:
-                await websocket.close(code=4003, reason="Unauthorized")
-                return
-        except (TimeoutError, Exception):
-            await websocket.close(code=4003, reason="Unauthorized")
-            return
+    await websocket.accept()
 
     # Track connection
     active_connections.append(websocket)

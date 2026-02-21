@@ -143,15 +143,24 @@ class AuthMiddleware:
 
 async def _auth_dispatch(request: Request) -> Response | None:
     """Core HTTP auth logic.  Return a Response to reject, or None to allow through."""
+    # CORS preflight — always let OPTIONS through so CORSMiddleware can respond.
+    if request.method == "OPTIONS":
+        return None
+
     # Exempt routes — return None to let the request through
     exempt_paths = [
         "/static",
         "/favicon.ico",
         "/ws",  # WebSocket handles its own auth in dashboard_ws.py
+        "/v1/ws",  # v1 WebSocket (short path) — same handler, same auth
+        "/api/v1/ws",  # v1 WebSocket — same handler, same auth
         "/api/qr",
         "/api/v1/qr",
         "/api/auth/login",
         "/api/v1/auth/login",
+        "/api/v1/docs",
+        "/api/v1/redoc",
+        "/api/v1/openapi.json",
         "/webhook/whatsapp",
         "/webhook/inbound",
         "/api/whatsapp/qr",

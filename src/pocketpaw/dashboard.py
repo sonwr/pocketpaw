@@ -124,6 +124,7 @@ app = FastAPI(
 # CORS — localhost + Cloudflare tunnel + Tauri desktop + custom origins from config
 _BUILTIN_ORIGINS = [
     "tauri://localhost",
+    "https://tauri.localhost",  # Tauri v2
     "http://localhost:1420",  # Tauri dev server
 ]
 try:
@@ -132,14 +133,9 @@ except Exception:
     _custom_origins = []
 _EXTRA_ORIGINS = list(set(_BUILTIN_ORIGINS + _custom_origins))
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=_EXTRA_ORIGINS,
-    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type"],
-)
+# NOTE: CORSMiddleware is registered AFTER AuthMiddleware below so that CORS
+# is outermost (Starlette processes last-added first) and handles OPTIONS
+# preflight before auth can reject them.  See line ~193.
 
 
 @app.middleware("http")
@@ -186,8 +182,18 @@ app.include_router(channels_router)
 # Mount auth router (session tokens, cookie login/logout, QR code, token regeneration)
 app.include_router(auth_router)
 
-# Register auth middleware — pure ASGI class that explicitly passes WebSocket through
+# Middleware order matters: last added = outermost = runs first.
+# Auth must be registered BEFORE CORS so CORS is outermost and handles
+# OPTIONS preflight requests before auth can reject them.
 app.add_middleware(AuthMiddleware)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_EXTRA_ORIGINS,
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.on_event("startup")
