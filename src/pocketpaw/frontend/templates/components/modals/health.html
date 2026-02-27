@@ -79,6 +79,33 @@
       <!-- Check Results -->
       <div>
         <h3 class="text-xs font-semibold uppercase tracking-wider text-white/40 mb-2">Diagnostics</h3>
+        <!-- Onboarding Context for Missing API Key -->
+          <template
+            x-if="
+              healthStatus === 'unhealthy' &&
+              healthIssues &&
+              healthIssues.some(i =>
+                i.check_id === 'api_key_primary' &&
+                i.message &&
+                i.message.includes('No Anthropic API key found')
+              )
+            "
+          >
+          <div
+            class="mb-3 px-4 py-3 bg-accent/10 border border-accent/20 rounded-xl flex items-start gap-3"
+          >
+            <i
+              data-lucide="info"
+              class="w-5 h-5 text-accent shrink-0 mt-0.5"
+            ></i>
+            <p class="text-xs text-white/70 leading-relaxed">
+              <strong class="text-white">PocketPaw is running correctly.</strong>
+              The dashboard, channels, and all non-AI features work normally.
+              AI functionality requires an API key — see the fix hint below.
+            </p>
+          </div>
+        </template>
+
         <div class="space-y-1">
           <template x-for="issue in healthIssues" :key="issue.check_id">
             <div class="flex items-start gap-2 px-3 py-2 bg-white/3 rounded-lg">
