@@ -159,6 +159,29 @@ class TestSecurity:
 
         assert "Access denied" in result
 
+    @pytest.mark.asyncio
+    async def test_startswith_bypass_blocked(self, temp_jail, mock_settings, tree_tool):
+        outside_prefix = temp_jail.parent / f"{temp_jail.name}_outside"
+        outside_prefix.mkdir(exist_ok=True)
+        (outside_prefix / "file.txt").write_text("outside")
+
+        result = await tree_tool.execute(path=str(outside_prefix))
+
+        assert "Access denied" in result
+
+    @pytest.mark.asyncio
+    async def test_symlink_is_skipped(self, temp_jail, mock_settings, tree_tool):
+        target = temp_jail / "target"
+        target.mkdir()
+        (target / "data.txt").write_text("ok")
+
+        link = temp_jail / "link_to_target"
+        link.symlink_to(target, target_is_directory=True)
+
+        result = await tree_tool.execute(path=str(temp_jail), show_hidden=True)
+
+        assert "link_to_target -> [symlink skipped]" in result
+
 
 class TestTruncation:
     @pytest.mark.asyncio

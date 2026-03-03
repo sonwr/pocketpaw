@@ -63,7 +63,7 @@ class DirectoryTreeTool(BaseTool):
 
             # Security: check file jail
             jail = get_settings().file_jail_path.resolve()
-            if not str(dir_path).startswith(str(jail)):
+            if not dir_path.is_relative_to(jail):
                 return self._error(f"Access denied: {path} is outside allowed directory")
 
             if not dir_path.exists():
@@ -73,9 +73,9 @@ class DirectoryTreeTool(BaseTool):
                 return self._error(f"Not a directory: {path}")
 
             lines: list[str] = [str(dir_path)]
-            counts = {"dirs": 0, "files": 0, "truncated": False}
+            counts = {"dirs": 0, "files": 0}
 
-            self._walk(
+            truncated = self._walk(
                 dir_path,
                 prefix="",
                 depth=0,
@@ -84,9 +84,8 @@ class DirectoryTreeTool(BaseTool):
                 show_size=show_size,
                 lines=lines,
                 counts=counts,
+                jail=jail,
             )
-
-            truncated = counts["truncated"]
 
             summary = f"\n{counts['dirs']} directories, {counts['files']} files"
             if truncated:
@@ -110,19 +109,19 @@ class DirectoryTreeTool(BaseTool):
         show_size: bool,
         lines: list[str],
         counts: dict[str, int],
-    ) -> None:
+        jail: Path,
+    ) -> bool:
         if depth >= max_depth:
-            return
+            return False
 
         if len(lines) > MAX_ENTRIES:
-            counts["truncated"] = True
-            return
+            return True
 
         try:
             entries = sorted(directory.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))
         except PermissionError:
             lines.append(f"{prefix}[permission denied]")
-            return
+            return False
 
         # Filter hidden files
         if not show_hidden:
@@ -130,15 +129,24 @@ class DirectoryTreeTool(BaseTool):
 
         for i, entry in enumerate(entries):
             if len(lines) > MAX_ENTRIES:
-                counts["truncated"] = True
-                return
+                return True
 
             is_last = i == len(entries) - 1
             connector = "└── " if is_last else "├── "
             extension = "    " if is_last else "│   "
 
             display = entry.name
+
+            if entry.is_symlink():
+                lines.append(f"{prefix}{connector}{display} -> [symlink skipped]")
+                continue
+
             if entry.is_dir():
+                resolved_entry = entry.resolve(strict=False)
+                if not resolved_entry.is_relative_to(jail):
+                    lines.append(f"{prefix}{connector}{display}/ -> [outside jail skipped]")
+                    continue
+
                 display += "/"
                 counts["dirs"] += 1
             else:
@@ -153,7 +161,7 @@ class DirectoryTreeTool(BaseTool):
             lines.append(f"{prefix}{connector}{display}")
 
             if entry.is_dir():
-                self._walk(
+                truncated = self._walk(
                     entry,
                     prefix=prefix + extension,
                     depth=depth + 1,
@@ -162,7 +170,12 @@ class DirectoryTreeTool(BaseTool):
                     show_size=show_size,
                     lines=lines,
                     counts=counts,
+                    jail=jail,
                 )
+                if truncated:
+                    return True
+
+        return False
 
     @staticmethod
     def _format_size(size: int) -> str:
