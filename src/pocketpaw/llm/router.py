@@ -80,7 +80,7 @@ class LLMRouter:
             return (
                 "❌ No LLM backend available.\n\n"
                 "Options:\n"
-                "• Install [Ollama](https://ollama.ai) and run `ollama run llama3.2`\n"
+                "• Install [Ollama](https://ollama.ai) and run `ollama run qwen3.5:9b`\n"
                 "• Add OpenAI API key in ⚙️ Settings\n"
                 "• Add Anthropic API key in ⚙️ Settings"
             )

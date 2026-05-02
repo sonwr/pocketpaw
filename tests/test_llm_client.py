@@ -42,11 +42,11 @@ class TestResolveLLMClient:
             anthropic_api_key=None,
             openai_api_key=None,
             ollama_host="http://myhost:11434",
-            ollama_model="qwen2.5:7b",
+            ollama_model="qwen3.5:9b",
         )
         llm = resolve_llm_client(settings)
         assert llm.provider == "ollama"
-        assert llm.model == "qwen2.5:7b"
+        assert llm.model == "qwen3.5:9b"
         assert llm.api_key is None
         assert llm.ollama_host == "http://myhost:11434"
 
@@ -54,13 +54,13 @@ class TestResolveLLMClient:
         """Explicit provider='ollama'."""
         settings = Settings(
             llm_provider="ollama",
-            ollama_model="llama3.2",
+            ollama_model="qwen3.5:9b",
             ollama_host="http://localhost:11434",
         )
         llm = resolve_llm_client(settings)
         assert llm.is_ollama
         assert not llm.is_anthropic
-        assert llm.model == "llama3.2"
+        assert llm.model == "qwen3.5:9b"
 
     def test_resolve_force_provider(self):
         """force_provider overrides settings."""
@@ -95,7 +95,7 @@ class TestCreateAnthropicClient:
         """Ollama client uses correct base_url, api_key, timeout, retries."""
         llm = LLMClient(
             provider="ollama",
-            model="llama3.2",
+            model="qwen3.5:9b",
             api_key=None,
             ollama_host="http://localhost:11434",
         )
@@ -163,7 +163,7 @@ class TestToSdkEnv:
     def test_to_sdk_env_ollama(self):
         llm = LLMClient(
             provider="ollama",
-            model="llama3.2",
+            model="qwen3.5:9b",
             api_key=None,
             ollama_host="http://myhost:11434",
         )
@@ -214,7 +214,7 @@ class TestFormatApiError:
     def test_format_error_ollama_connection(self):
         llm = LLMClient(
             provider="ollama",
-            model="llama3.2",
+            model="qwen3.5:9b",
             api_key=None,
             ollama_host="http://localhost:11434",
         )
@@ -225,7 +225,7 @@ class TestFormatApiError:
     def test_format_error_ollama_generic(self):
         llm = LLMClient(
             provider="ollama",
-            model="llama3.2",
+            model="qwen3.5:9b",
             api_key=None,
             ollama_host="http://localhost:11434",
         )

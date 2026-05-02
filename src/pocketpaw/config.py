@@ -184,7 +184,7 @@ class Settings(BaseSettings):
         ),
     )
     ollama_host: str = Field(default="http://localhost:11434", description="Ollama API host")
-    ollama_model: str = Field(default="llama3.2", description="Ollama model to use")
+    ollama_model: str = Field(default="qwen3.5:9b", description="Ollama model to use")
     openai_compatible_base_url: str = Field(
         default="",
         description="Base URL for OpenAI-compatible endpoint (LiteLLM, OpenRouter, vLLM, etc.)",

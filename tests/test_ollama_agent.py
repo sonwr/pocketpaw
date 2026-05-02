@@ -59,7 +59,7 @@ class TestClaudeSDKOllamaLogic:
         settings = Settings(
             llm_provider="ollama",
             ollama_host="http://myhost:11434",
-            ollama_model="llama3.2",
+            ollama_model="qwen3.5:9b",
         )
 
         llm = resolve_llm_client(settings)
@@ -68,7 +68,7 @@ class TestClaudeSDKOllamaLogic:
         assert env["ANTHROPIC_BASE_URL"] == "http://myhost:11434"
         assert env["ANTHROPIC_API_KEY"] == "ollama"
         assert "ANTHROPIC_AUTH_TOKEN" not in env
-        assert llm.model == "llama3.2"
+        assert llm.model == "qwen3.5:9b"
 
     def test_anthropic_env_vars_construction(self):
         """Verify the env dict for Anthropic provider."""
@@ -128,7 +128,7 @@ class TestCheckOllama:
 
         settings = Settings(
             ollama_host="http://localhost:99999",  # unreachable port
-            ollama_model="llama3.2",
+            ollama_model="qwen3.5:9b",
         )
 
         exit_code = await check_ollama(settings)
@@ -144,7 +144,7 @@ class TestCheckOllama:
         # Mock httpx response for /api/tags
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.json.return_value = {"models": [{"name": "llama3.2:latest"}]}
+        mock_response.json.return_value = {"models": [{"name": "qwen3.5:9b"}]}
         mock_response.raise_for_status = MagicMock()
 
         mock_client = AsyncMock()

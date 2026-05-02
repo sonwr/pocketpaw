@@ -26,13 +26,6 @@ _EMBEDDING_DIMS = {
     "text-embedding-3-small": 1536,
     "text-embedding-3-large": 3072,
     "text-embedding-ada-002": 1536,
-    "nomic-embed-text": 768,
-    "nomic-embed-text:latest": 768,
-    "mxbai-embed-large": 1024,
-    "mxbai-embed-large:latest": 1024,
-    "all-minilm": 384,
-    "all-minilm:latest": 384,
-    "snowflake-arctic-embed": 1024,
     "qwen3-embedding:0.6b": 1024,
     "qwen3-embedding:latest": 1024,
 }

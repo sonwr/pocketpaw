@@ -88,7 +88,7 @@ function app() {
             openaiAgentsProvider: 'openai',
             llmProvider: 'auto',
             ollamaHost: 'http://localhost:11434',
-            ollamaModel: 'llama3.2',
+            ollamaModel: 'qwen3.5:9b',
             anthropicModel: 'claude-sonnet-4-6',
             openaiCompatibleBaseUrl: '',
             openaiCompatibleApiKey: '',

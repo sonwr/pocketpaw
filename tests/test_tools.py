@@ -137,7 +137,7 @@ class TestConfig:
         assert settings.agent_backend == "claude_agent_sdk"  # New default
         assert settings.llm_provider == "auto"
         assert settings.web_port == 8888
-        assert settings.ollama_model == "llama3.2"
+        assert settings.ollama_model == "qwen3.5:9b"
 
     def test_settings_save_and_load(self, tmp_path, monkeypatch):
         """Settings should persist to disk."""

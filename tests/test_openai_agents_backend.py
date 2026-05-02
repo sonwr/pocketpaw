@@ -144,7 +144,7 @@ class TestOpenAIAgentsProvider:
         settings.llm_provider = "openai"  # global — should be ignored
         settings.openai_agents_provider = "ollama"  # per-backend
         settings.ollama_host = "http://localhost:11434"
-        settings.ollama_model = "llama3.2"
+        settings.ollama_model = "qwen3.5:9b"
         backend = OpenAIAgentsBackend(settings)
 
         try:

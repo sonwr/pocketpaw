@@ -39,9 +39,9 @@ class TestCreateMemoryStore:
         store = create_memory_store(
             backend="file",
             llm_provider="ollama",
-            llm_model="llama3.1",
+            llm_model="qwen3.5:9b",
             embedder_provider="ollama",
-            embedder_model="nomic-embed-text",
+            embedder_model="qwen3-embedding:0.6b",
             vector_store="chroma",
             ollama_base_url="http://localhost:11434",
         )
@@ -107,11 +107,11 @@ class TestBuildMem0Config:
 
         config = _build_mem0_config(
             llm_provider="ollama",
-            llm_model="llama3.1",
+            llm_model="qwen3.5:9b",
             ollama_base_url="http://localhost:11434",
         )
         assert config["llm"]["provider"] == "ollama"
-        assert config["llm"]["config"]["model"] == "llama3.1"
+        assert config["llm"]["config"]["model"] == "qwen3.5:9b"
         assert config["llm"]["config"]["ollama_base_url"] == "http://localhost:11434"
 
     def test_openai_embedder_config(self):
@@ -129,11 +129,11 @@ class TestBuildMem0Config:
 
         config = _build_mem0_config(
             embedder_provider="ollama",
-            embedder_model="nomic-embed-text",
+            embedder_model="qwen3-embedding:0.6b",
             ollama_base_url="http://localhost:11434",
         )
         assert config["embedder"]["provider"] == "ollama"
-        assert config["embedder"]["config"]["model"] == "nomic-embed-text"
+        assert config["embedder"]["config"]["model"] == "qwen3-embedding:0.6b"
         assert config["embedder"]["config"]["ollama_base_url"] == "http://localhost:11434"
 
     def test_qdrant_vector_store_config(self, tmp_path):
@@ -170,8 +170,10 @@ class TestBuildMem0Config:
         )
         assert config_large["vector_store"]["config"]["embedding_model_dims"] == 3072
 
-        config_nomic = _build_mem0_config(vector_store="qdrant", embedder_model="nomic-embed-text")
-        assert config_nomic["vector_store"]["config"]["embedding_model_dims"] == 768
+        config_qwen = _build_mem0_config(
+            vector_store="qdrant", embedder_model="qwen3-embedding:0.6b"
+        )
+        assert config_qwen["vector_store"]["config"]["embedding_model_dims"] == 1024
 
     def test_unknown_embedder_defaults_to_1536(self):
         from pocketpaw.memory.mem0_store import _build_mem0_config
@@ -463,16 +465,16 @@ class TestMem0MemoryStore:
             user_id="test",
             data_path=tmp_path,
             llm_provider="ollama",
-            llm_model="llama3.1",
+            llm_model="qwen3.5:9b",
             embedder_provider="ollama",
-            embedder_model="nomic-embed-text",
+            embedder_model="qwen3-embedding:0.6b",
             vector_store="chroma",
             ollama_base_url="http://my-ollama:11434",
         )
         assert store._llm_provider == "ollama"
-        assert store._llm_model == "llama3.1"
+        assert store._llm_model == "qwen3.5:9b"
         assert store._embedder_provider == "ollama"
-        assert store._embedder_model == "nomic-embed-text"
+        assert store._embedder_model == "qwen3-embedding:0.6b"
         assert store._vector_store == "chroma"
         assert store._ollama_base_url == "http://my-ollama:11434"
 
